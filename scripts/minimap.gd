@@ -1,9 +1,7 @@
 class_name Minimap
 extends Control
 ## Radar: terreno, névoa, unidades (inimigos só quando visíveis) e a área da câmera.
-## Clique ou arraste para mover a câmera. Desenhado como um losango, na mesma orientação da
-## câmera isométrica (nordeste à direita, sudeste embaixo): tudo é desenhado no espaço do
-## mapa e passa por _iso() na hora de ir para a tela.
+## Clique ou arraste para mover a câmera.
 
 signal clicked(ground_pos: Vector2)
 
@@ -19,7 +17,6 @@ var _timer := 0.0
 func _ready() -> void:
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	mouse_filter = Control.MOUSE_FILTER_STOP
-	clip_contents = true
 	_img = Image.create_empty(Map.W, Map.H, false, Image.FORMAT_RGBA8)
 	_tex = ImageTexture.create_from_image(_img)
 
@@ -51,19 +48,7 @@ func _cell_size() -> Vector2:
 	return size / Vector2(Map.W, Map.H)
 
 
-## Espaço do mapa (o retângulo do controle) → losango isométrico centrado no controle.
-func _iso() -> Transform2D:
-	var w := float(Map.W)
-	var h := float(Map.H)
-	var s := minf(size.x / (w + h), size.y / ((w + h) * 0.5))
-	var ox := (size.x - s * (w + h)) / 2.0 + s * h
-	var oy := (size.y - s * (w + h) * 0.5) / 2.0
-	return Transform2D(Vector2(s * w / size.x, s * 0.5 * w / size.x),
-			Vector2(-s * h / size.y, s * 0.5 * h / size.y), Vector2(ox, oy))
-
-
 func _draw() -> void:
-	draw_set_transform_matrix(_iso())
 	draw_texture_rect(_tex, Rect2(Vector2.ZERO, size), false)
 	var k := _cell_size() / Game.TILE
 	var now := Time.get_ticks_msec()
@@ -97,17 +82,17 @@ func _draw() -> void:
 			if g == null:
 				pts.clear()
 				break
-			pts.append(Game.to_ground(g) * k)
+			var q: Vector2 = Game.to_ground(g) * k
+			pts.append(q.clamp(Vector2.ZERO, size))
 		if pts.size() == 4:
 			pts.append(pts[0])
 			draw_polyline(pts, HUD.ACCENT, 1.0)
 	draw_rect(Rect2(Vector2.ZERO, size), HUD.BORDER, false, 1.0)
-	draw_set_transform_matrix(Transform2D.IDENTITY)
 
 
 func _gui_input(event: InputEvent) -> void:
 	var press: bool = event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT
 	var drag: bool = event is InputEventMouseMotion and (event.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0
 	if press or drag:
-		clicked.emit(_iso().affine_inverse() * event.position / _cell_size() * Game.TILE)
+		clicked.emit(event.position / _cell_size() * Game.TILE)
 		accept_event()
