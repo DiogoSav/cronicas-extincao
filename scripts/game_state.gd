@@ -180,6 +180,7 @@ func reset() -> void:
 		queues.append({})
 	entities = []
 	game_over = false
+	pings = []
 	map = null
 	world = null
 	fog = null
@@ -361,6 +362,8 @@ func start_production(team: int, type: String) -> bool:
 		if pop_cap(team) < POP_MAX:
 			msg += " — construa mais %s (+%d cada)" % [item_name("power", team), POP_PER_POWER]
 		notify(team, msg)
+		if team == local_team:
+			Sfx.play("sfx_ui_error")
 		return false
 	if Net.is_client():
 		Net.order("produce", [type])
@@ -373,11 +376,17 @@ func start_production(team: int, type: String) -> bool:
 	if busy and (cat == "building" or queued(team, cat).size() + 1 >= MAX_QUEUE):
 		if cat != "building":
 			notify(team, "Fila de produção cheia (máximo %d)" % MAX_QUEUE)
+		if team == local_team:
+			Sfx.play("sfx_ui_error")
 		return false
 	if credits[team] < data["cost"]:
 		notify(team, "%s insuficientes" % GameTheme.CURRENCY)
+		if team == local_team:
+			Sfx.play("sfx_ui_error")
 		return false
 	credits[team] -= data["cost"]
+	if team == local_team:
+		Sfx.play("sfx_ui_build_queue_add")
 	if busy:
 		queued(team, cat).append(type)
 	else:
@@ -418,6 +427,8 @@ func cancel_production(team: int, cat: String, type := "") -> void:
 	else:
 		return
 	notify(team, "Produção cancelada")
+	if team == local_team:
+		Sfx.play("sfx_ui_build_queue_cancel")
 
 
 ## Passa o próximo da fila para a produção.
@@ -448,6 +459,8 @@ func _process(delta: float) -> void:
 				else:
 					var pos := producer.position if cat == "air" else producer.exit_position()
 					var u := spawn_unit(job["type"], team, pos)
+					# Aviso visual (acessibilidade): unidade pronta
+					notify(team, "Unidade pronta: %s" % item_name(job["type"], team))
 					if producer.has_rally:
 						u.command_move(producer.rally)   # coletor: o ponto vira o campo de trabalho
 					production[team].erase(cat)
@@ -518,6 +531,8 @@ func place_building(type: String, team: int, cell: Vector2i) -> bool:
 		return false
 	spawn_building(type, team, cell, true)
 	production[team].erase("building")
+	if team == local_team:
+		Sfx.play("sfx_ui_place_ok")
 	return true
 
 
@@ -551,6 +566,31 @@ func building_attacked(b) -> void:
 	_base_alert_t = now
 	message.emit("ALERTA: %s sob ataque!  (Espaço: ir até lá)" % item_name(b.type, b.team))
 	base_alert.emit(b)
+	Sfx.base_alert()
+
+
+## Pisca no minimapa: [{pos, t}] de avisos fora da tela (prédio perdido, coletor atacado,
+## campo esgotado). O minimapa desenha cada um por AudioData.PING_TIME s.
+var pings: Array = []
+var _harvester_alert_t := -100.0
+
+
+## Marca um ponto do chão (pixels) para piscar no minimapa e toca o pulso do radar.
+func ping(pos: Vector2) -> void:
+	pings.append({"pos": pos, "t": Time.get_ticks_msec() / 1000.0})
+	last_alert_pos = pos
+	Sfx.play("sfx_ui_minimap_ping")
+
+
+## Coletor do jogador local sofrendo dano: mensagem e pisca no minimapa (no máximo a cada
+## AudioData.HARVESTER_ALERT_COOLDOWN s).
+func harvester_attacked(h) -> void:
+	var now := Time.get_ticks_msec() / 1000.0
+	if now - _harvester_alert_t < AudioData.HARVESTER_ALERT_COOLDOWN:
+		return
+	_harvester_alert_t = now
+	message.emit("ALERTA: %s sob ataque!  (Espaço: ir até lá)" % item_name(h.type, h.team))
+	ping(h.position)
 
 
 ## Mensagem para o dono do time: aparece aqui se for o jogador local; no multiplayer, o

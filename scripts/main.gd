@@ -339,6 +339,8 @@ func _finish_selection(end: Vector2) -> void:
 				var c: Vector3 = e.center3d()
 				if not cam.is_position_behind(c) and rect.has_point(cam.unproject_position(c)):
 					picked.append(e)
+	if not picked.is_empty():
+		Sfx.play("sfx_ui_selection_confirm")
 	_set_selection(picked)
 
 
@@ -507,8 +509,10 @@ func _command(pos: Vector2, kind: String) -> void:
 			for u in units:
 				u.command_attack(target)
 		overlay.add_marker(target.position, Color(1, 0.3, 0.25))
+		Sfx.play("sfx_ui_order_attack_marker")
 		return
 
+	Sfx.play("sfx_ui_order_attack_marker" if attack_move else "sfx_ui_order_move_marker")
 	# Formação em grade ao redor do ponto clicado
 	var n := units.size()
 	var cols := ceili(sqrt(n))
@@ -577,6 +581,7 @@ func _try_place() -> void:
 		placing = ""
 	else:
 		hud.show_message("Local inválido: precisa ser terreno livre, perto da sua base")
+		Sfx.play("sfx_ui_place_invalid")
 
 
 ## Fantasma do prédio que está sendo posicionado, verde ou vermelho conforme o local.

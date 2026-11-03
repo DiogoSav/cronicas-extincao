@@ -14,6 +14,8 @@ var think := 0.0
 ## Campo de trabalho: onde coletou por último (ou para onde o jogador mandou). Depois de
 ## descarregar o coletor volta para ele, por mais longe que esteja da refinaria.
 var field := Vector2(-1, -1)
+## Já avisou que o campo de trabalho esgotou (avisa uma vez por campo)
+var _field_empty_told := false
 
 
 func command_move(goal: Vector2) -> void:
@@ -34,6 +36,13 @@ func _find_ore() -> Vector2i:
 	var c := Vector2i(-1, -1)
 	if field.x >= 0.0:
 		c = Game.map.nearest_ore(field, 8)
+		if c.x < 0 and team == Game.local_team and not _field_empty_told:
+			# Aviso visual (acessibilidade): o campo de trabalho acabou
+			_field_empty_told = true
+			Game.notify(team, "Campo de %s esgotado: o coletor vai procurar outro" % GameTheme.RESOURCE)
+			Game.ping(field)
+		elif c.x >= 0:
+			_field_empty_told = false
 	if c.x < 0:
 		c = Game.map.nearest_ore(position, 24)
 	if c.x < 0:

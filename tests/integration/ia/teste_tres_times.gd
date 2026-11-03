@@ -126,6 +126,9 @@ func _run() -> void:
 	if cy1.size() == 1:
 		var spot: Vector2 = cy1[0].position + Vector2(-3, 0) * game.TILE
 		var intruder = game.spawn_unit("hum_soldado", 0, spot)
+		# Resistente: se as torres o matarem antes de a IA pensar, não há quem defender
+		intruder.max_hp = 1e6
+		intruder.hp = 1e6
 		cy1[0].take_damage(5.0, "rifle")
 		main.cam.focus(cy1[0].position)
 		await _wait(6.0)

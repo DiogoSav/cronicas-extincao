@@ -678,4 +678,5 @@ func die() -> void:
 		w.setup(model_name, body_angle, turret_angle - body_angle, position, altitude, team)
 		w.visible = visible
 		Game.world.add_child(w)
+	Sfx.unit_died(self)
 	super.die()

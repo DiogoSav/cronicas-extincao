@@ -376,4 +376,9 @@ func die() -> void:
 	for i in 3:
 		var off := Vector2(randf_range(-1, 1) * size.x, randf_range(-1, 1) * size.y) * 10.0
 		Game.spawn_explosion(position + off, radius * 0.8, 0.2)
+	Sfx.building_died(self)
+	if team == Game.local_team and built:
+		# Aviso visual (acessibilidade): o prédio pode ter caído fora da tela
+		Game.notify(team, "Prédio perdido: %s" % Game.item_name(type, team))
+		Game.ping(position)
 	super.die()

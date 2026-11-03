@@ -242,8 +242,23 @@ não pode ser reciclado.
 **Alerta de base.** Prédio do jogador perdendo vida grava `hit_at` (pisca vermelho no
 minimapa por 4 s) e chama `Game.building_attacked`: mensagem "ALERTA: … sob ataque!" no
 máximo a cada `BASE_ALERT_COOLDOWN` (12 s) e `Game.last_alert_pos` (Espaço leva a câmera).
-O kit **não tem sons**: cada jogo liga os seus nos sinais/pontos de entrada — por exemplo
-`Game.base_alert.connect(func(b): tocar_alerta())` para o alerta de base.
+O alerta toca o stinger da facção do jogador (`Sfx.base_alert`).
+
+**Avisos fora da tela.** `Game.ping(pos)` faz um anel piscar no minimapa por
+`AudioData.PING_TIME` s e atualiza `last_alert_pos`. Usado em: prédio perdido
+("Prédio perdido: …"), coletor atacado (`Game.harvester_attacked`, no máximo a cada
+`HARVESTER_ALERT_COOLDOWN` s) e campo de minério esgotado. Unidade pronta e energia baixa /
+restabelecida também viram mensagem. São os equivalentes visuais dos sons (acessibilidade).
+
+**Áudio.** Autoload `Sfx` (`scripts/sfx.gd`) com os dados em `data/audio_data.gd`: barramentos
+(Musica, Efeitos › Combate/Ambiente, Interface, Vozes, limitador no Master), eventos com
+variações de arquivo e de tom, teto de sons simultâneos (32; 24 na Web) e atenuação pela
+distância ao centro da câmera; som de inimigo na névoa não toca (`Sfx.play_at`). Ganchos:
+`Entity._shoot` (arma), impacto do raio e do projétil, `Unit.die`, `Building.die`, fila e
+posicionamento em `Game`, seleção e ordens em `main.gd`, todo botão (clique e passar o
+mouse) pelo `node_added` da árvore. Sons em `assets/audio/sfx/<id>_<n>.wav`, gerados por
+`python art_src/audio/gerar_sons.py` (síntese, sementes fixas). Spec:
+`design/audio/audio-sonoplastia-geral.md`.
 
 **Cura.** Prédio com `heal` (ex.: `medic`) cura a cada 1 s as unidades do time no alcance
 (soldados, veículos e naves) em `rate` × vida máxima; sem energia não cura e várias

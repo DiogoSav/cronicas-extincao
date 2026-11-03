@@ -70,6 +70,13 @@ func _draw() -> void:
 			draw_rect(r, col)
 		else:
 			draw_rect(Rect2(e.position * k - Vector2(1.5, 1.5), Vector2(3, 3)), col)
+	# Avisos fora da tela (Game.ping): anel piscando por AudioData.PING_TIME s
+	var now_s := now / 1000.0
+	for p in Game.pings:
+		var age: float = now_s - float(p["t"])
+		if age < AudioData.PING_TIME and blink:
+			var q: Vector2 = p["pos"] * k
+			draw_arc(q, 4.0 + fmod(age, 1.0) * 6.0, 0.0, TAU, 16, Color(1.0, 0.2, 0.1), 1.5)
 	# Área vista pela câmera: os cantos da parte livre da tela projetados no chão
 	var cam := get_viewport().get_camera_3d() as RTSCamera
 	if cam != null:

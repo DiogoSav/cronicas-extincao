@@ -163,13 +163,16 @@ func _shoot(deal_damage: bool) -> void:
 	target.last_hit_from = position
 	shot_timer = 0.09
 	var wtype := String(weapon["type"])
+	Sfx.weapon_fired(self, wtype)
 	if wtype in Game.PROJECTILE_WEAPONS:
 		var p := Projectile.new()
 		p.setup(self, target, float(weapon["damage"]) if deal_damage else 0.0, wtype)
 		Game.world.add_child(p)
 	elif deal_damage:
+		Sfx.weapon_hit(target, wtype, team)
 		target.take_damage(float(weapon["damage"]), wtype)
 	else:
+		Sfx.weapon_hit(target, wtype, team)
 		target._hit_t = 0.12
 
 
@@ -182,6 +185,8 @@ func take_damage(amount: float, weapon_type: String) -> void:
 	var mult: float = Game.ARMOR_MULT.get(weapon_type, {}).get(armor, 1.0)
 	last_hit_type = weapon_type
 	hp -= amount * mult
+	if self is Harvester and team == Game.local_team:
+		Game.harvester_attacked(self)
 	_hit_t = 0.12
 	if hp <= 0.0:
 		die()

@@ -75,6 +75,7 @@ func _impact() -> void:
 	var g := Game.to_ground(goal)
 	Game.spawn_explosion(g, 9.0 if wtype == "cannon" else 6.0, goal.y, color)
 	if is_instance_valid(target) and not target.dead:
+		Sfx.weapon_hit(target, wtype, team)
 		target.take_damage(damage, wtype)
 	# o rastro continua um pouco depois do impacto
 	_trail.emitting = false
