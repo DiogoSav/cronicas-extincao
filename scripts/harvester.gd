@@ -109,7 +109,7 @@ func _process(delta: float) -> void:
 				return
 			var amount := minf(cargo, UNLOAD_RATE * delta)
 			cargo -= amount
-			Game.credits[team] += amount
+			Game.credits[team] += amount * Game.income_mult[team]
 			if cargo <= 0.0:
 				cargo = 0.0
 				state = "seek"

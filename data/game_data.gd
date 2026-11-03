@@ -386,6 +386,35 @@ const AI_WEIGHTS := {
 	"air": [3, 0, 2],
 }
 
+## IA: níveis de dificuldade. A missão escolhe com "ai": {"difficulty": ...}; a escaramuça,
+## pelo seletor do menu. first_wave e wave_size da missão têm prioridade sobre estes valores.
+## Spec: design/quick-specs/ia-inimiga-terceiro-time-2026-11-03.md (ponto de partida, sem
+## balanceamento validado).
+##   think          intervalo entre decisões (s)
+##   income_mult    multiplica o minério que os coletores da IA descarregam
+##   wave_growth    quanto cada onda cresce · wave_max: onda máxima
+##   wave_interval  tempo máximo entre ondas (s)
+##   rebuild        reconstrói prédios destruídos · defend: defende a base
+##   defend_radius  alcance da defesa (células)
+##   repair_below   conserta prédios abaixo desta fração da vida (0 = nunca)
+##   repair_reserve dinheiro mínimo mantido ao consertar
+const AI_DIFFICULTY_ORDER := ["facil", "medio", "dificil"]
+const AI_DIFFICULTY := {
+	"facil": {"name": "Fácil", "think": 2.5, "income_mult": 0.8, "wave_growth": 1,
+		"wave_max": 12, "wave_interval": 150.0, "rebuild": false, "defend": true,
+		"defend_radius": 10, "repair_below": 0.0, "repair_reserve": 0.0},
+	"medio": {"name": "Médio", "think": 1.5, "income_mult": 1.0, "wave_growth": 2,
+		"wave_max": 16, "wave_interval": 120.0, "rebuild": true, "defend": true,
+		"defend_radius": 14, "repair_below": 0.5, "repair_reserve": 800.0},
+	"dificil": {"name": "Difícil", "think": 1.0, "income_mult": 1.25, "wave_growth": 3,
+		"wave_max": 22, "wave_interval": 90.0, "rebuild": true, "defend": true,
+		"defend_radius": 18, "repair_below": 0.7, "repair_reserve": 400.0},
+}
+## A IA da escaramuça grava a base que tiver depois deste tempo (s) como base a reconstruir.
+const AI_SKIRMISH_LAYOUT_AT := 60.0
+## Fim da defesa: segundos sem inimigos perto da base.
+const AI_DEFEND_CALM := 10.0
+
 ## Tamanhos de mapa: escala sobre o mapa pequeno (64×48 células). A ordem é a dos botões.
 const MAP_SIZES := {
 	"small": {"name": "Pequeno", "scale": 1.0},

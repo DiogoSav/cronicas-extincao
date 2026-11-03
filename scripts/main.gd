@@ -16,6 +16,8 @@ var overlay: Overlay
 var cam: RTSCamera
 var hud: HUD
 var ai: EnemyAI
+## IA do segundo inimigo (só em missões com "enemy2")
+var ai2: EnemyAI = null
 var pause_menu: PauseMenu
 var mission: Mission   # só na campanha
 
@@ -92,8 +94,16 @@ func _ready() -> void:
 	add_child(pause_menu)
 
 	ai = EnemyAI.new()
+	ai.team = Game.ENEMY
 	if not Net.active:
+		ai.set_difficulty(Game.ai_difficulty)   # a missão troca pelo nível dela
 		add_child(ai)
+	# Missão com segundo inimigo: uma IA para cada time
+	if Game.team_count > 2:
+		ai2 = EnemyAI.new()
+		ai2.team = Game.ENEMY2
+		ai2.set_difficulty(Game.ai_difficulty)
+		add_child(ai2)
 
 	if not m.is_empty():
 		mission = Mission.new(self, m)

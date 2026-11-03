@@ -10,13 +10,16 @@ extends RefCounted
 ##           rocks [[célula, raio]], clear [[célula, raio]], ore [[célula, raio]]}
 ##   "player_base"/"enemy_base": centros (área livre e alvo da IA)
 ##   "player_start"/"enemy_start": {"buildings": [[tipo, célula, tag?]], "units": [[id, célula, quantidade]]}
-##   "ai": {first_wave (s), wave_size, produce (bool)}
+##   "ai": {first_wave (s), wave_size, produce (bool), difficulty ("facil" | "medio" | "dificil")}
+##   Segundo inimigo (opcional): "enemy2" (raça), "enemy2_base", "enemy2_start", "ai2" (como
+##       "ai"), "credits" com 3 valores e "enemies_allied" (true = os dois inimigos são
+##       aliados; padrão false = brigam entre si)
 ##   "objectives": [{id, text, type, ...}] — tipos que o jogo já sabe verificar:
 ##       build (building) · army (count) · destroy_tag (tag ou tags) · destroy_all ·
 ##       survive (t) · have (unit, count)
 ##   "defeat": {type "lose_building", building}
 ##   "events": [{at "start" | "time" (t) | "objective" (id), speaker, text, wave?}]
-##       wave = {units [[id, n]], from célula, target "player_base" | célula}
+##       wave = {units [[id, n]], from célula, target "player_base" | célula, team (1 | 2)}
 ##   "briefing", "ending": textos de abertura e encerramento.
 
 const CAMPAIGNS := {
@@ -77,7 +80,7 @@ const MISSIONS := {
 				["ins_rifle", Vector2i(54, 18), 2], ["ins_mg", Vector2i(54, 29), 2],
 			],
 		},
-		"ai": {"first_wave": 330.0, "wave_size": 5, "produce": true},
+		"ai": {"first_wave": 330.0, "wave_size": 5, "produce": true, "difficulty": "facil"},
 		"objectives": [
 			{"id": "quartel", "type": "build", "building": "barracks",
 				"text": "Construir o Alojamento (produção de infantaria)"},
@@ -165,7 +168,7 @@ const MISSIONS := {
 				["ins_tank", Vector2i(42, 16), 1], ["ins_rifle", Vector2i(36, 12), 3],
 			],
 		},
-		"ai": {"first_wave": 270.0, "wave_size": 6, "produce": true},
+		"ai": {"first_wave": 270.0, "wave_size": 6, "produce": true, "difficulty": "medio"},
 		"objectives": [
 			{"id": "base", "type": "build", "building": "factory",
 				"text": "Estabelecer a base militar (construir a Mecânica)"},

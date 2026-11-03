@@ -104,6 +104,7 @@ var _ready_button: Button
 var _ships: Array = []
 var _enemy_buttons := {}
 var _solo_map_buttons := {}
+var _diff_buttons := {}
 var _room_map_buttons := {}
 var _room_map_row: HBoxContainer
 var _room_map_info: Label
@@ -167,6 +168,8 @@ func _ready() -> void:
 	_set_enemy(Game.enemy_choice)
 	faction_page.add_child(_map_row(_solo_map_buttons, _set_solo_map))
 	_set_solo_map(Game.map_size)
+	faction_page.add_child(_difficulty_row())
+	_set_difficulty(Game.ai_difficulty)
 
 	var help := Label.new()
 	help.text = "Arrastar: selecionar   ·   Botão direito: mover / atacar   ·   Ctrl + botão direito: andar atacando\nWASD / bordas: câmera   ·   Roda: zoom   ·   Clique no minimapa: ir para o local   ·   F11: tela cheia"
@@ -699,6 +702,33 @@ func _map_row(buttons: Dictionary, on_pick: Callable) -> HBoxContainer:
 		row.add_child(b)
 		buttons[k] = b
 	return row
+
+
+## Fileira "Dificuldade: Fácil · Médio · Difícil" (IA da escaramuça).
+func _difficulty_row() -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 10)
+	var l := Label.new()
+	l.text = "Dificuldade:"
+	l.add_theme_font_size_override("font_size", 20)
+	l.add_theme_color_override("font_color", Color(0.7, 0.8, 0.9))
+	row.add_child(l)
+	for k in GameData.AI_DIFFICULTY_ORDER:
+		var b := make_button(GameData.AI_DIFFICULTY[k]["name"])
+		b.toggle_mode = true
+		b.custom_minimum_size = Vector2(210, 44)
+		b.add_theme_font_size_override("font_size", 18)
+		b.pressed.connect(_set_difficulty.bind(k))
+		row.add_child(b)
+		_diff_buttons[k] = b
+	return row
+
+
+func _set_difficulty(k: String) -> void:
+	Game.ai_difficulty = k
+	for key in _diff_buttons:
+		_diff_buttons[key].set_pressed_no_signal(key == k)
 
 
 func _set_solo_map(k: String) -> void:

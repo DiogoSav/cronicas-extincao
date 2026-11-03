@@ -62,14 +62,30 @@ func _init(main_node: Node, mission: Dictionary) -> void:
 
 ## Bases, unidades e dinheiro iniciais; configura a IA. Chamado por main._setup_bases.
 func spawn_start() -> void:
-	Game.credits = data["credits"].duplicate()
+	for t in mini(data["credits"].size(), Game.team_count):
+		Game.credits[t] = float(data["credits"][t])
 	_spawn_side(Game.PLAYER, data["player_start"])
 	_spawn_side(Game.ENEMY, data["enemy_start"])
-	var ai_cfg: Dictionary = data.get("ai", {})
-	main.ai.home = main.map.cell_center(data["enemy_base"])
-	main.ai.wave_timer = float(ai_cfg.get("first_wave", 300.0))
-	main.ai.wave_size = int(ai_cfg.get("wave_size", 6))
-	main.ai.produce = ai_cfg.get("produce", true)
+	_setup_ai(main.ai, data.get("ai", {}), data["enemy_base"])
+	if main.ai2 != null:
+		_spawn_side(Game.ENEMY2, data.get("enemy2_start", {}))
+		_setup_ai(main.ai2, data.get("ai2", {}), data["enemy2_base"])
+
+
+## Configura a IA de um time inimigo: nível, base, primeira onda e tamanho das ondas
+## (os valores da missão têm prioridade sobre os da dificuldade).
+func _setup_ai(ai: EnemyAI, cfg: Dictionary, base: Vector2i) -> void:
+	ai.set_difficulty(cfg.get("difficulty", "medio"))
+	ai.home = main.map.cell_center(base)
+	ai.wave_timer = float(cfg.get("first_wave", 300.0))
+	ai.wave_size = int(cfg.get("wave_size", 6))
+	ai.produce = cfg.get("produce", true)
+	ai.remember_base()
+	# Prédios com tag são alvos de objetivo: destruídos, não voltam
+	var tagged := {}
+	for b in _tags.values():
+		tagged[b.cell] = true
+	ai.layout = ai.layout.filter(func(entry): return not tagged.has(entry[1]))
 
 
 func _spawn_side(team: int, side: Dictionary) -> void:
@@ -139,7 +155,11 @@ func _objective_met(o: Dictionary) -> bool:
 					n += 1
 			return n >= int(o["count"])
 		"destroy_all":
-			return Game.building_count(Game.ENEMY) == 0
+			# todos os inimigos sem prédios (com "enemy2", os dois)
+			for t in Game.enemy_teams():
+				if Game.building_count(t) > 0:
+					return false
+			return true
 		"survive":
 			return time >= float(o["t"])
 	return false
@@ -186,7 +206,7 @@ func _send_wave(w: Dictionary) -> void:
 	for spec in w["units"]:
 		for i in int(spec[1]):
 			var c: Vector2i = w["from"] + Vector2i(-(k % 3), k / 3)
-			var u = Game.spawn_unit(spec[0], Game.ENEMY, main.map.cell_center(c))
+			var u = Game.spawn_unit(spec[0], int(w.get("team", Game.ENEMY)), main.map.cell_center(c))
 			u.command_attack_move(target)
 			k += 1
 

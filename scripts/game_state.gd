@@ -11,6 +11,8 @@ signal base_alert(building)
 const TILE := 32
 const PLAYER := 0
 const ENEMY := 1
+## Segundo inimigo: só na campanha, em missões com "enemy2" (o multiplayer tem 2 times)
+const ENEMY2 := 2
 ## Conteúdo do jogo (raças, unidades, prédios e regras): vem de data/game_data.gd
 const START_CREDITS := GameData.START_CREDITS
 
@@ -50,9 +52,17 @@ var _ids := {}
 var _next_id := 1
 var _types: Array = []
 var enemy_choice := ""
-## Raça de cada time: [jogador, inimigo]
+## Dificuldade da IA na escaramuça (GameData.AI_DIFFICULTY; persiste entre partidas)
+var ai_difficulty := "medio"
+## Times em uso: 2 normalmente, 3 em missões com segundo inimigo
+var team_count := 2
+## Missão com dois inimigos: true = aliados entre si; false = brigam entre si
+var enemies_allied := false
+## Raça de cada time: [jogador, inimigo, segundo inimigo?]
 var factions: Array = [FACTIONS.keys()[0], FACTIONS.keys()[-1]]
 var credits: Array = [START_CREDITS, START_CREDITS]
+## Multiplicador do minério descarregado, por time (a IA usa income_mult da dificuldade)
+var income_mult: Array = [1.0, 1.0]
 var map: Map = null
 var world: Node3D = null
 var fog: Fog = null
@@ -153,12 +163,22 @@ func reset() -> void:
 	factions = [player_faction, enemy]
 	if Net.active:
 		factions = net_factions.duplicate()
+	elif mission.has("enemy2"):
+		factions.append(mission["enemy2"])
+	team_count = factions.size()
+	enemies_allied = mission.get("enemies_allied", false)
 	_ids = {}
 	_next_id = 1
-	credits = [START_CREDITS, START_CREDITS]
+	credits = []
+	income_mult = []
+	production = []
+	queues = []
+	for t in team_count:
+		credits.append(START_CREDITS)
+		income_mult.append(1.0)
+		production.append({})
+		queues.append({})
 	entities = []
-	production = [{}, {}]
-	queues = [{}, {}]
 	game_over = false
 	map = null
 	world = null
@@ -170,7 +190,26 @@ func faction(team: int) -> Dictionary:
 
 
 func team_color(team: int) -> Color:
-	return faction(team)["color"]
+	var c: Color = faction(team)["color"]
+	# Dois inimigos da mesma raça: o segundo fica mais escuro, para o mapa distinguir
+	if team == ENEMY2 and factions[ENEMY2] == factions[ENEMY]:
+		c = c.darkened(0.45)
+	return c
+
+
+## Os times `a` e `b` se atacam? O jogador é inimigo de todos; os dois inimigos de uma
+## missão só se atacam quando a missão não os declara aliados ("enemies_allied").
+func are_enemies(a: int, b: int) -> bool:
+	if a == b:
+		return false
+	if a != PLAYER and b != PLAYER:
+		return not enemies_allied
+	return true
+
+
+## Times controlados pela IA / inimigos do jogador (1, ou 1 e 2).
+func enemy_teams() -> Array:
+	return range(1, team_count)
 
 
 func item_data(type: String) -> Dictionary:
@@ -227,7 +266,7 @@ func nearest_enemy(pos: Vector2, team: int, max_dist: float, attacker: Entity = 
 	var best: Entity = null
 	var best_d := max_dist
 	for e in entities:
-		if e.team == team or e.dead:
+		if not are_enemies(e.team, team) or e.dead:
 			continue
 		if attacker != null and not attacker.can_hit(e):
 			continue
@@ -391,7 +430,7 @@ func _next_job(team: int, cat: String) -> void:
 func _process(delta: float) -> void:
 	if game_over or map == null or Net.is_client():
 		return
-	for team in 2:
+	for team in team_count:
 		var mult := 0.5 if low_power(team) else 1.0
 		for cat in production[team].keys():
 			var job: Dictionary = production[team][cat]

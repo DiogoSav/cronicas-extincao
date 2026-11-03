@@ -274,7 +274,9 @@ desgaste procedural nos materiais) ou `infantaria.py` (soldados detalhados), dep
 iniciais, objetivos, eventos com hora marcada, ondas, textos). `scripts/mission.gd` monta a
 missão, mostra briefing, objetivos e transmissões e decide vitória/derrota (o fim padrão
 "sem prédios" fica desligado em `Game.remove_entity`). Progresso em `user://campanha.cfg`.
-Objetivos suportados: `build`, `army`, `destroy_tag`, `destroy_all`, `survive`.
+Objetivos suportados: `build`, `army`, `have`, `destroy_tag`, `destroy_all` (todos os
+inimigos sem prédios), `survive`. Segundo inimigo: `enemy2`, `enemy2_base`, `enemy2_start`,
+`ai2`, `credits` com 3 valores, `enemies_allied` e `"team": 2` nas ondas de evento.
 
 **Naves.** Voam em linha reta a `AIR_HEIGHT`, ignoram terreno e prédios, inclinam nas
 curvas e caem girando ao ser abatidas. Só armas com `air: true` as atingem.
@@ -285,8 +287,24 @@ por ponto = `cost / 2 / hp`. Para se o dinheiro acabar; nunca é automático.
 **Névoa de guerra.** Preto onde nunca foi visto, penumbra onde já foi explorado. Inimigos
 só aparecem na área visível (prédios ficam visíveis depois de explorados).
 
-**IA.** Mantém 2 coletores, produz infantaria/veículos/naves pelos pesos, e ataca em ondas
-(a primeira aos 3 min; depois a cada exército completo ou 2 min).
+**IA.** Uma instância de `EnemyAI` por time inimigo (`ai.team`). Mantém 2 coletores,
+produz infantaria/veículos/naves pelos pesos e ataca em ondas (a primeira pelo tempo;
+depois quando o exército em casa completa a onda ou após `wave_interval`). Também:
+- **reconstrói** os prédios da base gravada (`remember_base`: na campanha, a base inicial
+  menos os prédios com tag; na escaramuça, a base aos `AI_SKIRMISH_LAYOUT_AT` s), um por
+  vez na ordem de `BUILD_ORDER`, na mesma célula ou na livre mais próxima; sem `cy` não
+  constrói; e **conserta** prédios abaixo de `repair_below` mantendo `repair_reserve`;
+- **defende**: prédio atingido chama as unidades em casa a até `defend_radius` da base;
+  depois de `AI_DEFEND_CALM` s sem inimigos perto, elas voltam. Ondas enviadas não voltam;
+- **dificuldade** (`GameData.AI_DIFFICULTY`: facil/medio/dificil): ritmo de decisão, renda
+  (`Game.income_mult`), crescimento/máximo/intervalo das ondas, reconstrução e conserto. A
+  escaramuça escolhe no menu (`Game.ai_difficulty`); a missão, em `"ai": {"difficulty"}`.
+
+**Times.** `Game.PLAYER = 0`, `ENEMY = 1` e, só na campanha, `ENEMY2 = 2` (missões com
+`"enemy2"`). `Game.team_count` diz quantos estão em uso; `credits`, `production`, `queues`
+e `income_mult` têm uma entrada por time. Quem ataca quem é `Game.are_enemies(a, b)`: o
+jogador é inimigo de todos; os dois inimigos brigam entre si salvo `"enemies_allied": true`.
+Dois inimigos da mesma raça: o time 2 fica com a cor escurecida.
 
 **Fim de jogo.** Perde quem fica sem prédios.
 
