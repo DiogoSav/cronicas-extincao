@@ -1,0 +1,473 @@
+class_name Map
+extends Node3D
+## Mapa em grade: terreno, campos de cristal, bloqueio de prédios e pathfinding (AStarGrid2D).
+## O chão é um shader procedural (poeira e basalto alienígenas); os cristais são malhas
+## instanciadas (MultiMesh) que encolhem conforme são extraídos.
+
+enum { GRASS, ROCK, ORE }
+
+## Tamanho do mapa pequeno (o layout de bases e campos foi desenhado para ele)
+const BASE_W := 64
+const BASE_H := 48
+## Tamanho atual, em células (configure() antes de gerar o mapa)
+static var W := BASE_W
+static var H := BASE_H
+const ORE_MAX := 350.0
+const CRYSTALS_PER_CELL := 2
+
+var tiles := PackedInt32Array()
+var ore := PackedFloat32Array()
+var blocked := PackedByteArray()
+var astar := AStarGrid2D.new()
+var rng := RandomNumberGenerator.new()
+var _dirty_timer := 0.0
+var _dirty := false
+var _terrain: MeshInstance3D
+var _terrain_mat: ShaderMaterial
+var _cell_img: Image
+var _cell_tex: ImageTexture
+var _crystals: MultiMeshInstance3D
+var _crystal_cells := PackedInt32Array()   # índice da célula de cada instância
+var _crystal_base: Array = []               # Transform3D de cada instância (tamanho cheio)
+
+const TERRAIN_SHADER := """
+shader_type spatial;
+render_mode specular_schlick_ggx;
+uniform sampler2D noise_tex : repeat_enable, filter_linear_mipmap;
+uniform sampler2D detail_tex : hint_normal, repeat_enable, filter_linear_mipmap;
+uniform sampler2D cell_tex : filter_linear;
+uniform vec2 map_size = vec2(64.0, 48.0);
+uniform vec4 ground_dark : source_color;
+uniform vec4 ground_mid : source_color;
+uniform vec4 ground_light : source_color;
+uniform vec4 resource_ground : source_color;
+uniform vec4 resource_glow : source_color;
+global uniform sampler2D fog_tex;
+global uniform float fog_on;
+global uniform vec2 fog_size;
+varying vec3 wpos;
+
+void vertex() {
+	wpos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+}
+
+void fragment() {
+	vec2 p = wpos.xz;
+	float n1 = texture(noise_tex, p * 0.031).r;
+	float n2 = texture(noise_tex, p * 0.13 + vec2(0.37, 0.11)).r;
+	float n3 = texture(noise_tex, p * 0.71 + vec2(0.5, 0.2)).r;
+	float n4 = texture(noise_tex, p * 2.3).r;
+	vec3 basalt = ground_dark.rgb;
+	vec3 dust = ground_mid.rgb;
+	vec3 pale = ground_light.rgb;
+	vec3 col = mix(basalt, dust, smoothstep(0.32, 0.68, n1));
+	col = mix(col, pale, smoothstep(0.62, 0.82, n2) * 0.4);
+	col *= 0.82 + 0.25 * n3 + 0.12 * n4;
+	// rachaduras
+	float cr = abs(texture(noise_tex, p * 0.19 + vec2(0.7, 0.3)).r - 0.5);
+	float crack = 1.0 - smoothstep(0.0, 0.025, cr);
+	col *= 1.0 - crack * 0.45;
+	vec4 cell = texture(cell_tex, p / map_size);
+	col = mix(col, basalt * 0.75, cell.g * 0.65);
+	// campos de cristal: chão arroxeado com brilho fraco
+	vec3 vio = resource_ground.rgb;
+	col = mix(col, vio * (0.7 + 0.5 * n3), cell.r * 0.65);
+	ALBEDO = col;
+	ROUGHNESS = 0.88 - cell.r * 0.3 - crack * 0.1;
+	NORMAL_MAP = texture(detail_tex, p * 0.45).rgb;
+	NORMAL_MAP_DEPTH = 1.4;
+	vec3 em = resource_glow.rgb * cell.r * 0.1 * (0.5 + 0.8 * n4);
+	float f = 1.0;
+	vec2 fuv = p / fog_size;
+	bool outside = fuv.x < 0.0 || fuv.y < 0.0 || fuv.x > 1.0 || fuv.y > 1.0;
+	if (fog_on > 0.5) {
+		f = outside ? 0.0 : texture(fog_tex, fuv).r;
+	} else if (outside) {
+		f = 0.35;
+	}
+	ALBEDO *= f;
+	EMISSION = em * f;
+}
+"""
+
+
+## `layout` (missões de campanha, opcional): "rock_count" (aglomerados aleatórios),
+## "ridges" [[de, até, raio]] (cristas de rocha), "rocks" [[célula, raio]] e
+## "clear" [[célula, raio]] (áreas livres garantidas, além das bases).
+func generate(seed_value: int, base_centers: Array, ore_fields: Array, layout := {}) -> void:
+	rng.seed = seed_value
+	var n := W * H
+	tiles.resize(n)
+	tiles.fill(GRASS)
+	ore.resize(n)
+	ore.fill(0.0)
+	blocked.resize(n)
+	blocked.fill(0)
+
+	# Formações rochosas (intransponíveis)
+	var area_k := float(W * H) / float(BASE_W * BASE_H)
+	for i in int(layout.get("rock_count", roundi(26 * area_k))):
+		var c := Vector2i(rng.randi_range(0, W - 1), rng.randi_range(0, H - 1))
+		_fill_circle(c, rng.randi_range(1, 3), ROCK)
+	for r in layout.get("ridges", []):
+		var a := Vector2(r[0])
+		var b := Vector2(r[1])
+		var steps := ceili(a.distance_to(b))
+		for s in steps + 1:
+			_fill_circle(Vector2i(a.lerp(b, float(s) / maxf(steps, 1)).round()), r[2], ROCK)
+	for r in layout.get("rocks", []):
+		_fill_circle(r[0], r[1], ROCK)
+
+	# Área livre ao redor das bases (e onde a missão pedir)
+	for b in base_centers:
+		_fill_circle(b, 8, GRASS)
+	for r in layout.get("clear", []):
+		_fill_circle(r[0], r[1], GRASS)
+
+	# Campos de cristal: [centro, raio]
+	for f in ore_fields:
+		var center: Vector2i = f[0]
+		var r: int = f[1]
+		for y in range(-r, r + 1):
+			for x in range(-r, r + 1):
+				var c: Vector2i = center + Vector2i(x, y)
+				if in_bounds(c) and Vector2(x, y).length() <= r + 0.3 and tiles[idx(c)] == GRASS:
+					tiles[idx(c)] = ORE
+					ore[idx(c)] = rng.randf_range(150.0, ORE_MAX)
+
+	astar.region = Rect2i(0, 0, W, H)
+	astar.cell_size = Vector2(Game.TILE, Game.TILE)
+	astar.offset = Vector2(Game.TILE, Game.TILE) / 2.0
+	astar.diagonal_mode = AStarGrid2D.DIAGONAL_MODE_ONLY_IF_NO_OBSTACLES
+	astar.update()
+	for y in H:
+		for x in W:
+			if tiles[y * W + x] == ROCK:
+				astar.set_point_solid(Vector2i(x, y), true)
+	_build_terrain()
+	_build_crystals()
+
+
+## Define o tamanho do mapa: escala 1 = 64×48; 1,35 e 1,6 para médio e grande.
+static func configure(scale: float) -> void:
+	W = roundi(BASE_W * scale)
+	H = roundi(BASE_H * scale)
+
+
+## Converte uma célula do layout do mapa pequeno para o mapa atual, mantendo-a presa a um
+## ponto de referência: anchor (0, 0) = canto superior esquerdo, (1, 1) = inferior direito,
+## (0.5, 0.5) = centro. Assim as bases ficam nos cantos e o resto se espalha.
+static func fit(c: Vector2i, anchor: Vector2) -> Vector2i:
+	return c + Vector2i(roundi((W - BASE_W) * anchor.x), roundi((H - BASE_H) * anchor.y))
+
+
+func _fill_circle(center: Vector2i, r: int, value: int) -> void:
+	for y in range(-r, r + 1):
+		for x in range(-r, r + 1):
+			var c := center + Vector2i(x, y)
+			if in_bounds(c) and Vector2(x, y).length() <= r + rng.randf() * 0.6:
+				tiles[idx(c)] = value
+
+
+# ---------------------------------------------------------------- utilitários
+
+func idx(c: Vector2i) -> int:
+	return c.y * W + c.x
+
+
+func in_bounds(c: Vector2i) -> bool:
+	return c.x >= 0 and c.y >= 0 and c.x < W and c.y < H
+
+
+func world_to_cell(p: Vector2) -> Vector2i:
+	return Vector2i(floori(p.x / Game.TILE), floori(p.y / Game.TILE))
+
+
+func cell_center(c: Vector2i) -> Vector2:
+	return (Vector2(c) + Vector2(0.5, 0.5)) * Game.TILE
+
+
+func is_walkable(c: Vector2i) -> bool:
+	return in_bounds(c) and tiles[idx(c)] != ROCK and blocked[idx(c)] == 0
+
+
+func is_walkable_world(p: Vector2) -> bool:
+	return is_walkable(world_to_cell(p))
+
+
+func is_buildable(c: Vector2i) -> bool:
+	return in_bounds(c) and tiles[idx(c)] == GRASS and blocked[idx(c)] == 0
+
+
+func set_cells_blocked(origin: Vector2i, size: Vector2i, value: bool) -> void:
+	for y in size.y:
+		for x in size.x:
+			var c := origin + Vector2i(x, y)
+			if not in_bounds(c):
+				continue
+			blocked[idx(c)] = 1 if value else 0
+			astar.set_point_solid(c, value or tiles[idx(c)] == ROCK)
+
+
+func nearest_walkable(c: Vector2i) -> Vector2i:
+	if is_walkable(c):
+		return c
+	for r in range(1, 14):
+		for y in range(-r, r + 1):
+			for x in range(-r, r + 1):
+				if absi(x) != r and absi(y) != r:
+					continue
+				var n := c + Vector2i(x, y)
+				if is_walkable(n):
+					return n
+	return c
+
+
+func find_path(from: Vector2, to: Vector2) -> PackedVector2Array:
+	var a := nearest_walkable(world_to_cell(from))
+	var b := nearest_walkable(world_to_cell(to))
+	if not is_walkable(a) or not is_walkable(b):
+		return PackedVector2Array()
+	return astar.get_point_path(a, b)
+
+
+# ---------------------------------------------------------------- cristais
+
+func ore_at(c: Vector2i) -> float:
+	if not in_bounds(c):
+		return 0.0
+	return ore[idx(c)]
+
+
+func take_ore(c: Vector2i, amount: float) -> float:
+	if not in_bounds(c) or tiles[idx(c)] != ORE:
+		return 0.0
+	var i := idx(c)
+	var got := minf(amount, ore[i])
+	ore[i] -= got
+	if ore[i] <= 0.5:
+		ore[i] = 0.0
+		tiles[i] = GRASS
+	_dirty = true
+	return got
+
+
+func nearest_ore(p: Vector2, max_r: int) -> Vector2i:
+	var c := world_to_cell(p)
+	var best := Vector2i(-1, -1)
+	var best_d := INF
+	for y in range(maxi(0, c.y - max_r), mini(H, c.y + max_r + 1)):
+		for x in range(maxi(0, c.x - max_r), mini(W, c.x + max_r + 1)):
+			var i := y * W + x
+			if tiles[i] == ORE and ore[i] > 0.0:
+				var d := Vector2(x - c.x, y - c.y).length_squared()
+				if d < best_d:
+					best_d = d
+					best = Vector2i(x, y)
+	return best
+
+
+## Os cristais crescem de novo devagar nos campos que ainda existem.
+func _process(delta: float) -> void:
+	_dirty_timer -= delta
+	if _dirty_timer > 0.0:
+		return
+	_dirty_timer = 0.5
+	for i in (0 if Net.is_client() else 6):   # no convidado os cristais vêm do anfitrião
+		var j := rng.randi_range(0, W * H - 1)
+		if tiles[j] == ORE and ore[j] < ORE_MAX:
+			ore[j] = minf(ORE_MAX, ore[j] + 40.0)
+			_dirty = true
+	if _dirty:
+		_dirty = false
+		_update_cells()
+		_update_crystals()
+
+
+## Multiplayer: quantidade de cristal de cada célula, em 1 byte (0 = sem cristal).
+func ore_bytes() -> PackedByteArray:
+	var out := PackedByteArray()
+	out.resize(W * H)
+	for i in W * H:
+		out[i] = 0 if tiles[i] != ORE else clampi(ceili(ore[i] / ORE_MAX * 255.0), 1, 255)
+	return out
+
+
+func apply_ore_bytes(data: PackedByteArray) -> void:
+	for i in mini(data.size(), W * H):
+		if tiles[i] == ROCK:
+			continue
+		if data[i] == 0:
+			if tiles[i] == ORE:
+				tiles[i] = GRASS
+				ore[i] = 0.0
+				_dirty = true
+		else:
+			var v := data[i] / 255.0 * ORE_MAX
+			if absf(v - ore[i]) > 2.0:
+				ore[i] = v
+				_dirty = true
+
+
+## Rochas, pináculos e plantas alienígenas nas células intransponíveis.
+func spawn_props(parent: Node3D) -> void:
+	var names: Array = GameTheme.PROPS.map(func(p): return p[0])
+	var weights: Array = GameTheme.PROPS.map(func(p): return p[1])
+	for y in H:
+		for x in W:
+			if tiles[y * W + x] != ROCK:
+				continue
+			var pname: String = names[_weighted(weights)]
+			var jitter := Vector2(rng.randf_range(-4, 4), rng.randf_range(-4, 4))
+			var p: Node3D
+			if SpriteBody.has_sheet(pname):
+				# sprite pré-renderizado: uma das 8 variações (o modelo girado no render)
+				p = Node3D.new()
+				p.add_child(SpriteBody.make_static(pname, rng.randi_range(0, 7)))
+				p.scale = Vector3.ONE * rng.randf_range(1.0, 1.25)
+			else:
+				p = Models.instantiate(pname)
+				p.rotation.y = rng.randf() * TAU
+				p.scale *= rng.randf_range(1.0, 1.35)
+			p.position = Game.to3d(cell_center(Vector2i(x, y)) + jitter)
+			parent.add_child(p)
+
+
+func _weighted(weights: Array) -> int:
+	var total := 0
+	for w in weights:
+		total += w
+	var r := rng.randi_range(0, total - 1)
+	for i in weights.size():
+		r -= weights[i]
+		if r < 0:
+			return i
+	return 0
+
+
+# ---------------------------------------------------------------- visual
+
+func _noise_tex(freq: float, normal := false) -> NoiseTexture2D:
+	var nz := FastNoiseLite.new()
+	nz.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	nz.frequency = freq
+	nz.fractal_octaves = 5
+	nz.seed = rng.randi()
+	var t := NoiseTexture2D.new()
+	t.width = 512
+	t.height = 512
+	t.seamless = true
+	t.noise = nz
+	t.generate_mipmaps = true
+	if normal:
+		t.as_normal_map = true
+		t.bump_strength = 6.0
+	return t
+
+
+func _build_terrain() -> void:
+	_cell_img = Image.create_empty(W, H, false, Image.FORMAT_RGBA8)
+	_cell_tex = ImageTexture.create_from_image(_cell_img)
+	_update_cells()
+	_terrain = MeshInstance3D.new()
+	var plane := PlaneMesh.new()
+	plane.size = Vector2(W + 80, H + 80)
+	_terrain.mesh = plane
+	_terrain.position = Vector3(W / 2.0, 0, H / 2.0)
+	_terrain_mat = ShaderMaterial.new()
+	var sh := Shader.new()
+	sh.code = TERRAIN_SHADER
+	_terrain_mat.shader = sh
+	_terrain_mat.set_shader_parameter("noise_tex", _noise_tex(0.008))
+	_terrain_mat.set_shader_parameter("detail_tex", _noise_tex(0.02, true))
+	_terrain_mat.set_shader_parameter("cell_tex", _cell_tex)
+	_terrain_mat.set_shader_parameter("map_size", Vector2(W, H))
+	_terrain_mat.set_shader_parameter("ground_dark", GameTheme.GROUND_DARK)
+	_terrain_mat.set_shader_parameter("ground_mid", GameTheme.GROUND_MID)
+	_terrain_mat.set_shader_parameter("ground_light", GameTheme.GROUND_LIGHT)
+	_terrain_mat.set_shader_parameter("resource_ground", GameTheme.RESOURCE_GROUND)
+	_terrain_mat.set_shader_parameter("resource_glow", GameTheme.RESOURCE_GLOW)
+	_terrain.material_override = _terrain_mat
+	_terrain.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(_terrain)
+
+
+## Textura de dados por célula para o shader do chão: R = cristal, G = rocha.
+func _update_cells() -> void:
+	for y in H:
+		for x in W:
+			var i := y * W + x
+			var r := clampf(ore[i] / ORE_MAX, 0.0, 1.0) * 0.6 + (0.4 if tiles[i] == ORE else 0.0)
+			var g := 1.0 if tiles[i] == ROCK else 0.0
+			_cell_img.set_pixel(x, y, Color(r, g, 0.0))
+	_cell_tex.update(_cell_img)
+
+
+## Cristais em sprite (um nó por cristal, encolhem com a extração) se houver a folha.
+var _crystal_sprites: Array = []
+
+func _build_crystals() -> void:
+	if SpriteBody.has_sheet(GameTheme.RESOURCE_MODEL):
+		_build_crystal_sprites()
+		return
+	var mesh := Models.first_mesh(GameTheme.RESOURCE_MODEL)
+	if mesh == null:
+		return
+	_crystal_base.clear()
+	var cells := PackedInt32Array()
+	for i in W * H:
+		if tiles[i] == ORE:
+			for k in CRYSTALS_PER_CELL:
+				cells.append(i)
+				var c := Vector2i(i % W, i / W)
+				var off := Vector2(rng.randf_range(-9, 9), rng.randf_range(-9, 9))
+				var t := Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3.ONE * rng.randf_range(0.8, 1.3)),
+						Game.to3d(cell_center(c) + off))
+				_crystal_base.append(t)
+	_crystal_cells = cells
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.mesh = mesh
+	mm.instance_count = cells.size()
+	_crystals = MultiMeshInstance3D.new()
+	_crystals.multimesh = mm
+	add_child(_crystals)
+	_update_crystals()
+
+
+func _build_crystal_sprites() -> void:
+	var cells := PackedInt32Array()
+	for i in W * H:
+		if tiles[i] == ORE:
+			for k in CRYSTALS_PER_CELL:
+				cells.append(i)
+				var c := Vector2i(i % W, i / W)
+				var off := Vector2(rng.randf_range(-9, 9), rng.randf_range(-9, 9))
+				var n := Node3D.new()
+				n.position = Game.to3d(cell_center(c) + off)
+				n.add_child(SpriteBody.make_static(GameTheme.RESOURCE_MODEL, rng.randi_range(0, 7)))
+				n.set_meta("base", rng.randf_range(0.8, 1.2))
+				add_child(n)
+				_crystal_sprites.append(n)
+	_crystal_cells = cells
+	_update_crystals()
+
+
+func _update_crystals() -> void:
+	if not _crystal_sprites.is_empty():
+		for k in _crystal_cells.size():
+			var i := _crystal_cells[k]
+			var f := clampf(ore[i] / ORE_MAX, 0.0, 1.0)
+			var n: Node3D = _crystal_sprites[k]
+			n.visible = tiles[i] == ORE and ore[i] > 1.0
+			n.scale = Vector3.ONE * float(n.get_meta("base")) * (0.45 + 0.55 * f)
+		return
+	if _crystals == null:
+		return
+	var mm := _crystals.multimesh
+	for k in _crystal_cells.size():
+		var i := _crystal_cells[k]
+		var f := clampf(ore[i] / ORE_MAX, 0.0, 1.0)
+		var s := 0.0 if tiles[i] != ORE else 0.35 + 0.65 * f
+		var t: Transform3D = _crystal_base[k]
+		mm.set_instance_transform(k, Transform3D(t.basis.scaled(Vector3.ONE * maxf(s, 0.001)), t.origin))

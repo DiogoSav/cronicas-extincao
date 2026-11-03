@@ -1,0 +1,603 @@
+extends Node3D
+## Cena principal: monta o mundo 3D e cuida da entrada do jogador (seleção, ordens, construção).
+##
+## A lógica usa coordenadas de chão (pixels de chão). O mouse vira um raio da câmera:
+## o ponto onde ele cruza o chão é a posição das ordens, e as caixas das entidades
+## decidem o que está sob o cursor.
+
+## Centros das bases no mapa atual (o layout de data/game_data.gd ajustado ao tamanho)
+var player_base: Vector2i
+var enemy_base: Vector2i
+
+var map: Map
+var world: Node3D
+var fog: Fog
+var overlay: Overlay
+var cam: RTSCamera
+var hud: HUD
+var ai: EnemyAI
+var pause_menu: PauseMenu
+var mission: Mission   # só na campanha
+
+var selection: Array = []
+var dragging := false
+var drag_start := Vector2.ZERO   # posição na tela
+var placing := ""
+var _ghost: Node3D
+var _ghost_type := ""
+var _ghost_area: MeshInstance3D
+var _last_ground := Vector2.ZERO
+## Ordem esperando o clique no mapa (botões Mover / Atacar / Patrulha): "", "move", "attack_move", "patrol"
+var order_mode := ""
+## Grupos de controle: tecla 1..9 -> lista de entidades
+var groups := {}
+var _group_key := -1
+var _group_t := 0
+const ORDER_NAMES := {"move": "Mover", "attack_move": "Atacar andando", "patrol": "Patrulha"}
+
+
+func _ready() -> void:
+	Game.reset()
+
+	world = Node3D.new()
+	world.name = "World"
+	add_child(world)
+	Game.world = world
+
+	map = Map.new()
+	world.add_child(map)
+	Game.map = map
+	# No multiplayer os dois geram o mesmo mapa a partir da semente do anfitrião
+	# Tamanho escolhido no menu (no multiplayer, pelo anfitrião na sala de espera)
+	Map.configure(Game.MAP_SIZES.get(Game.map_size, Game.MAP_SIZES.values()[0])["scale"])
+	player_base = Map.fit(GameData.PLAYER_BASE, GameData.PLAYER_CORNER)
+	enemy_base = Map.fit(GameData.ENEMY_BASE, GameData.ENEMY_CORNER)
+	var m := Game.mission
+	if m.is_empty():
+		map.generate(Net.map_seed if Net.active else randi(), [player_base, enemy_base], _resource_fields())
+	else:
+		# Campanha: mapa desenhado para a missão (data/campaign.gd)
+		player_base = m["player_base"]
+		enemy_base = m["enemy_base"]
+		map.generate(int(m["map"]["seed"]), [player_base, enemy_base], m["map"]["ore"], m["map"])
+	map.spawn_props(world)
+
+	fog = Fog.new()
+	add_child(fog)
+	fog.init()
+	Game.fog = fog
+
+	_setup_lights()
+	add_child(Tracers.new())
+
+	cam = RTSCamera.new()
+	add_child(cam)
+	cam.make_current()
+
+	var layer := CanvasLayer.new()
+	layer.layer = 0
+	add_child(layer)
+	overlay = Overlay.new()
+	overlay.main = self
+	layer.add_child(overlay)
+	add_child(Ambience.new())
+
+	hud = HUD.new()
+	add_child(hud)
+	hud.place_requested.connect(_on_place_requested)
+	hud.minimap_clicked.connect(_on_minimap_clicked)
+	hud.pause_requested.connect(func(): pause_menu.open())
+
+	pause_menu = PauseMenu.new()
+	add_child(pause_menu)
+
+	ai = EnemyAI.new()
+	if not Net.active:
+		add_child(ai)
+
+	if not m.is_empty():
+		mission = Mission.new(self, m)
+	_setup_bases()
+	cam.focus(map.cell_center(enemy_base if Game.local_team == Game.ENEMY else player_base))
+	var f := Game.faction(Game.local_team)
+	if mission != null:
+		add_child(mission)
+	else:
+		hud.show_message("%s: construa %s → %s e destrua a base inimiga!" % [f["army"], f["buildings"]["power"], f["buildings"]["refinery"]])
+	if Net.active:
+		# Multiplayer: congela até os dois jogadores terminarem de carregar
+		hud.set_waiting("Aguardando %s terminar de carregar…" % Net.names[1 - Net.me()])
+		Net.go.connect(func():
+			hud.set_waiting("")
+			hud.show_message("A partida começou! Boa sorte, %s." % Net.names[Net.me()]), CONNECT_ONE_SHOT)
+		Net.scene_loaded()
+
+
+## Planeta alienígena: sol branco-azulado, luz de preenchimento violeta, bloom, oclusão de
+## ambiente e névoa fria no horizonte.
+func _setup_lights() -> void:
+	var env := Environment.new()
+	env.background_mode = Environment.BG_COLOR
+	env.background_color = Color(0.02, 0.02, 0.035)
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	env.ambient_light_color = Color(0.62, 0.56, 0.52)
+	env.ambient_light_energy = 0.45
+	env.tonemap_mode = Environment.TONE_MAPPER_ACES
+	env.tonemap_exposure = 1.05
+	env.tonemap_white = 6.0
+	env.glow_enabled = true
+	env.glow_intensity = 0.45
+	env.glow_strength = 0.9
+	env.glow_bloom = 0.0
+	env.glow_hdr_threshold = 1.25
+	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_SCREEN
+	for lvl in [1, 2, 3, 4]:
+		env.set_glow_level(lvl, true)
+	env.ssao_enabled = true
+	env.ssao_radius = 0.8
+	env.ssao_intensity = 1.6
+	env.ssao_power = 1.3
+	env.ssil_enabled = false
+	env.adjustment_enabled = true
+	env.adjustment_contrast = 1.06
+	env.adjustment_saturation = 0.95   # planeta devastado: cores mais sóbrias
+	env.fog_enabled = true
+	env.fog_light_color = Color(0.32, 0.28, 0.26)
+	env.fog_density = 0.0015
+	var we := WorldEnvironment.new()
+	we.environment = env
+	add_child(we)
+
+	var sun := DirectionalLight3D.new()
+	sun.light_color = Color(1.0, 0.86, 0.7)   # sol baixo de fim de tarde, através da fumaça
+	sun.light_energy = 1.35
+	sun.shadow_enabled = true
+	sun.shadow_opacity = 0.85
+	sun.shadow_blur = 1.2
+	sun.directional_shadow_max_distance = 50.0
+	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
+	sun.basis = Basis.looking_at(Vector3(0.55, -1.0, -0.6), Vector3.UP)
+	add_child(sun)
+	# Luz de recorte vinda do lado oposto, fria e azulada (dá volume aos modelos)
+	var fill := DirectionalLight3D.new()
+	fill.light_color = Color(0.5, 0.6, 0.95)
+	fill.light_energy = 0.45
+	fill.basis = Basis.looking_at(Vector3(-0.6, -0.5, 0.7), Vector3.UP)
+	add_child(fill)
+
+
+## Campos de recurso do tamanho atual: [centro, raio] (GameData.RESOURCE_FIELDS).
+func _resource_fields() -> Array:
+	var out: Array = []
+	for f in GameData.RESOURCE_FIELDS:
+		var sizes: Array = f[3]
+		if sizes.is_empty() or sizes.has(Game.map_size):
+			out.append([Map.fit(f[0], f[2]), f[1]])
+	return out
+
+
+func _setup_bases() -> void:
+	if Net.is_client():
+		return   # no convidado tudo chega pelos snapshots do anfitrião
+	if mission != null:
+		mission.spawn_start()
+		return
+	var P := Game.PLAYER
+	var E := Game.ENEMY
+	_starter(P, GameData.PLAYER_START, GameData.PLAYER_CORNER)
+	if Net.active:
+		# Multiplayer: os dois começam iguais, em cantos opostos
+		_starter(E, GameData.ENEMY_START, GameData.ENEMY_CORNER)
+		return
+	# Contra a IA: o inimigo começa com a base pronta (GameData.AI_BASE)
+	var ef := Game.faction(E)
+	for b in GameData.AI_BASE:
+		Game.spawn_building(b[0], E, Map.fit(b[1], GameData.ENEMY_CORNER))
+	for i in GameData.AI_START_UNITS.size():
+		var c: Vector2i = Map.fit(GameData.AI_START_UNITS[i], GameData.ENEMY_CORNER)
+		Game.spawn_unit(ef["infantry"][i % ef["infantry"].size()], E, map.cell_center(c))
+
+
+## Centro de comando, 3 soldados e 1 tanque (posições de GameData.PLAYER_START / ENEMY_START).
+func _starter(team: int, start: Dictionary, corner: Vector2) -> void:
+	var cy := Map.fit(start["cy"], corner)
+	var inf := Map.fit(start["infantry"], corner)
+	var tank := Map.fit(start["tank"], corner)
+	var f := Game.faction(team)
+	Game.spawn_building("cy", team, cy)
+	for i in 3:
+		Game.spawn_unit(f["infantry"][0], team, map.cell_center(inf + Vector2i(i, 0)))
+	Game.spawn_unit(f["starter_tank"], team, map.cell_center(tank))
+
+
+func screen_mouse() -> Vector2:
+	return get_viewport().get_mouse_position()
+
+
+## Ponto do chão sob o mouse, em pixels de chão.
+func ground_mouse() -> Vector2:
+	var g = cam.ground_at(screen_mouse())
+	if g != null:
+		_last_ground = Game.to_ground(g)
+	return _last_ground
+
+
+# ---------------------------------------------------------------- entrada
+
+func _process(_delta: float) -> void:
+	var alive := selection.filter(func(s): return is_instance_valid(s) and not s.dead and s.is_inside_tree())
+	if alive.size() != selection.size():
+		selection = alive
+		hud.info.set_selection(selection)
+	# Se o botão foi solto em cima da barra lateral, o evento não chega aqui
+	if dragging and not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
+		dragging = false
+		_finish_selection(screen_mouse())
+	_update_ghost()
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo:
+		if event.keycode == KEY_R and Game.game_over and not Net.active:
+			get_tree().reload_current_scene()
+		elif event.keycode == KEY_M and Game.game_over:
+			Net.leave()
+			get_tree().change_scene_to_file("res://scenes/menu.tscn")
+		elif event.keycode == KEY_ESCAPE:
+			# Esc cancela o que estiver em andamento; sem nada para cancelar, pausa
+			if order_mode != "":
+				set_order_mode("")
+			elif placing != "":
+				placing = ""
+			elif not selection.is_empty():
+				_set_selection([])
+			else:
+				pause_menu.open()
+		elif event.keycode == KEY_P:
+			pause_menu.open()
+		elif Game.game_over:
+			pass
+		elif event.keycode == KEY_K:
+			toggle_repair_selected()
+		elif event.keycode >= KEY_1 and event.keycode <= KEY_9:
+			_group_input(event.keycode - KEY_0, event.ctrl_pressed)
+		elif event.keycode == KEY_SPACE:
+			if Game.last_alert_pos.x >= 0.0:
+				cam.focus(Game.last_alert_pos)
+		elif event.keycode == KEY_DELETE:
+			recycle_selected()
+		elif event.keycode == KEY_M:
+			set_order_mode("move")
+		elif event.keycode == KEY_Q:
+			set_order_mode("patrol")
+		elif event.keycode == KEY_X:
+			unit_order("stop")
+		elif event.keycode == KEY_G:
+			unit_order("defend")
+		elif event.keycode == KEY_H:
+			unit_order("aggressive")
+		elif event.keycode == KEY_U:
+			unit_order("unload")
+		elif event.keycode == KEY_F11:
+			Ambience.toggle_fullscreen()
+		return
+	if Game.game_over or not (event is InputEventMouseButton):
+		return
+
+	if event.button_index == MOUSE_BUTTON_LEFT:
+		if event.pressed:
+			if order_mode != "":
+				_command(ground_mouse(), order_mode)
+				set_order_mode("")
+			elif placing != "":
+				_try_place()
+			else:
+				dragging = true
+				drag_start = event.position
+		elif dragging:
+			dragging = false
+			_finish_selection(event.position)
+	elif event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
+		if order_mode != "":
+			set_order_mode("")
+		elif placing != "":
+			placing = ""
+		else:
+			_command(ground_mouse(), "attack_move" if event.ctrl_pressed else "move")
+
+
+func _set_selection(list: Array) -> void:
+	for s in selection:
+		if is_instance_valid(s):
+			s.selected = false
+	selection = list
+	for s in selection:
+		s.selected = true
+	hud.info.set_selection(selection)
+
+
+func _finish_selection(end: Vector2) -> void:
+	var rect := Rect2(drag_start, end - drag_start).abs()
+	var picked: Array = []
+	if rect.size.length() < 6.0:
+		var e = _entity_at()
+		if e != null and e.team == Game.local_team:
+			picked.append(e)
+	else:
+		for e in Game.entities:
+			if e is Unit and e.team == Game.local_team:
+				var c: Vector3 = e.center3d()
+				if not cam.is_position_behind(c) and rect.has_point(cam.unproject_position(c)):
+					picked.append(e)
+	_set_selection(picked)
+
+
+## Entidade sob o mouse: o raio da câmera contra a caixa de cada uma.
+## Unidades têm prioridade; entre várias, ganha a mais próxima da câmera.
+func _entity_at():
+	var from := cam.project_ray_origin(screen_mouse())
+	var dir := cam.project_ray_normal(screen_mouse())
+	for pass_units in [true, false]:
+		var best = null
+		var best_d := INF
+		for e in Game.entities:
+			if (e is Unit) != pass_units or not e.visible:
+				continue
+			var hit = e.pick_box().intersects_ray(from, dir)
+			if hit != null:
+				var d := from.distance_to(hit)
+				if d < best_d:
+					best_d = d
+					best = e
+		if best != null:
+			return best
+	return null
+
+
+## Unidades selecionadas do jogador (sem prédios).
+func selected_units() -> Array:
+	return selection.filter(func(s): return is_instance_valid(s) and s is Unit and not s.dead)
+
+
+## Espera um clique no mapa para dar a ordem (botões Mover / Atacar andando / Patrulha).
+func set_order_mode(mode: String) -> void:
+	if mode != "" and selected_units().is_empty():
+		return
+	order_mode = mode
+	if mode != "":
+		hud.show_message("%s: clique no mapa para o destino (botão direito cancela)" % ORDER_NAMES[mode])
+
+
+## Ordens imediatas: "stop", "defend", "aggressive", "unload" (desembarcar).
+func unit_order(kind: String) -> void:
+	var units := selected_units()
+	if units.is_empty():
+		return
+	if kind == "unload":
+		var trs := units.filter(func(u): return u.is_transport() and not u.passengers.is_empty())
+		if Net.is_client():
+			Net.order("unload", [trs.map(func(u): return u.net_id)])
+		else:
+			for u in trs:
+				u.unload()
+		hud.show_message("Desembarcar" if not trs.is_empty() else "Nenhum transporte com tropas")
+		return
+	if Net.is_client():
+		var ids: Array = units.map(func(u): return u.net_id)
+		if kind == "stop":
+			Net.order("stop", [ids])
+		else:
+			Net.order("stance", [ids, kind])
+	for u in units:
+		if Net.is_client():
+			if kind != "stop":
+				u.stance = kind   # só para o painel; quem age é o anfitrião
+		elif kind == "stop":
+			u.command_stop()
+		else:
+			u.set_stance(kind)
+	hud.info.refresh()
+	hud.show_message({"stop": "Parar", "defend": "Postura: DEFENDER (segura a posição)",
+			"aggressive": "Postura: AGRESSIVO (persegue inimigos)"}[kind])
+
+
+## Ctrl + número grava a seleção; número seleciona; o mesmo número duas vezes seguidas
+## leva a câmera até o grupo.
+func _group_input(n: int, assign: bool) -> void:
+	if assign:
+		var list := selection.filter(func(s): return is_instance_valid(s) and s.team == Game.local_team)
+		if list.is_empty():
+			groups.erase(n)
+			hud.show_message("Grupo %d apagado" % n)
+		else:
+			groups[n] = list
+			hud.show_message("Grupo %d: %d selecionados" % [n, list.size()])
+		return
+	var list: Array = groups.get(n, []).filter(func(s): return is_instance_valid(s) and not s.dead)
+	groups[n] = list
+	if list.is_empty():
+		return
+	var now := Time.get_ticks_msec()
+	if _group_key == n and now - _group_t < 400:
+		var c := Vector2.ZERO
+		for e in list:
+			c += e.position
+		cam.focus(c / list.size())
+	_group_key = n
+	_group_t = now
+	_set_selection(list)
+
+
+var _recycle_armed_t := -100000
+
+
+## Reciclagem pedida há pouco (o segundo clique / Delete confirma).
+func recycle_armed() -> bool:
+	return Time.get_ticks_msec() - _recycle_armed_t < 3000
+
+
+## Recicla os prédios selecionados (tecla Delete ou botão no painel), devolvendo 80% do custo.
+## Precisa de confirmação: o primeiro pedido arma, o segundo (em até 3 s) recicla.
+func recycle_selected() -> void:
+	var list := selection.filter(func(e): return is_instance_valid(e) and e is Building and e.team == Game.local_team and e.can_recycle())
+	if list.is_empty():
+		return
+	if not recycle_armed():
+		_recycle_armed_t = Time.get_ticks_msec()
+		hud.show_message("Reciclar? Clique de novo (ou Delete) para confirmar")
+		return
+	_recycle_armed_t = -100000
+	for e in selection.duplicate():
+		if is_instance_valid(e) and e is Building and e.team == Game.local_team and e.can_recycle():
+			if Net.is_client():
+				Net.order("recycle", [e.net_id])
+			else:
+				e.recycle()
+	_set_selection(selection.filter(func(s): return is_instance_valid(s) and not s.dead))
+
+
+## Botão direito com prédios produtores selecionados: marca o ponto de reunião.
+func _set_rally(pos: Vector2) -> bool:
+	var done := false
+	for e in selection:
+		if is_instance_valid(e) and e is Building and e.team == Game.local_team and e.produces_units():
+			e.set_rally(pos)
+			if Net.is_client():
+				Net.order("rally", [e.net_id, pos])
+			done = true
+	if done:
+		overlay.add_marker(pos, Color(0.5, 1.0, 0.6))
+		hud.show_message("Ponto de reunião marcado: as unidades novas vão para lá")
+	return done
+
+
+func _command(pos: Vector2, kind: String) -> void:
+	var units := selected_units()
+	if units.is_empty():
+		_set_rally(pos)
+		return
+	var attack_move := kind == "attack_move"
+	var target = _entity_at() if kind != "patrol" else null
+	# Botão direito num transporte aliado: quem cabe embarca
+	if target != null and target.team == Game.local_team and target is Unit and target.is_transport() 			and kind == "move":
+		var riders := units.filter(func(u): return u != target)
+		if not riders.is_empty():
+			if Net.is_client():
+				Net.order("board", [riders.map(func(u): return u.net_id), target.net_id])
+			else:
+				for u in riders:
+					u.command_board(target)
+			overlay.add_marker(target.position, Color(0.5, 1.0, 0.6))
+			hud.show_message("Embarcar em %s" % target.data["name"])
+			return
+	if target != null and target.team != Game.local_team:
+		if Net.is_client():
+			Net.order("attack", [units.map(func(u): return u.net_id), target.net_id])
+		else:
+			for u in units:
+				u.command_attack(target)
+		overlay.add_marker(target.position, Color(1, 0.3, 0.25))
+		return
+
+	# Formação em grade ao redor do ponto clicado
+	var n := units.size()
+	var cols := ceili(sqrt(n))
+	var rows := ceili(float(n) / cols)
+	var ids: Array = []
+	var goals: Array = []
+	for i in n:
+		var col := i % cols
+		var row := floori(float(i) / cols)
+		var off := Vector2(col - (cols - 1) / 2.0, row - (rows - 1) / 2.0) * 24.0
+		if Net.is_client():
+			ids.append(units[i].net_id)
+			goals.append(pos + off)
+		elif kind == "patrol":
+			units[i].command_patrol(pos + off)
+		elif attack_move:
+			units[i].command_attack_move(pos + off)
+		else:
+			units[i].command_move(pos + off)
+	if Net.is_client():
+		Net.order(kind, [ids, goals])
+	var col := Color(0.95, 0.85, 0.5)
+	if attack_move:
+		col = Color(1, 0.6, 0.3)
+	elif kind == "patrol":
+		col = Color(0.5, 0.8, 1.0)
+	overlay.add_marker(pos, col)
+
+
+func _on_minimap_clicked(ground_pos: Vector2) -> void:
+	cam.focus(ground_pos)
+
+
+# ---------------------------------------------------------------- construção
+
+## Liga/desliga o conserto dos prédios selecionados (tecla K ou botão no painel).
+## O conserto é sempre pedido prédio a prédio; nada é consertado automaticamente.
+func toggle_repair_selected() -> void:
+	for e in selection:
+		if not (e is Building) or e.team != Game.local_team:
+			continue
+		if e.repairing:
+			Game.request_repair(e, false)
+			hud.show_message("Conserto interrompido")
+		elif not e.can_repair():
+			hud.show_message("Este prédio não precisa de conserto")
+		else:
+			Game.request_repair(e, true)
+			hud.show_message("Consertando %s: %d créditos para recuperar tudo" % [
+					Game.item_name(e.type), e.repair_cost_total()])
+
+
+func _on_place_requested(type: String) -> void:
+	placing = type
+	hud.show_message("Clique para posicionar (perto da sua base). Botão direito cancela.")
+
+
+func placement_cell() -> Vector2i:
+	var size: Vector2i = Game.BUILDINGS[placing]["size"]
+	var m := ground_mouse() / Game.TILE
+	return Vector2i(floori(m.x - size.x / 2.0 + 0.5), floori(m.y - size.y / 2.0 + 0.5))
+
+
+func _try_place() -> void:
+	if Game.place_building(placing, Game.local_team, placement_cell()):
+		placing = ""
+	else:
+		hud.show_message("Local inválido: precisa ser terreno livre, perto da sua base")
+
+
+## Fantasma do prédio que está sendo posicionado, verde ou vermelho conforme o local.
+func _update_ghost() -> void:
+	if placing != _ghost_type:
+		if _ghost != null:
+			_ghost.queue_free()
+			_ghost = null
+		_ghost_type = placing
+		if placing != "":
+			_ghost = Node3D.new()
+			var m := Models.instantiate(placing + "_" + Game.factions[Game.local_team])
+			m.name = "model"
+			_ghost.add_child(m)
+			var size: Vector2i = Game.BUILDINGS[placing]["size"]
+			_ghost_area = MeshInstance3D.new()
+			var plane := PlaneMesh.new()
+			plane.size = Vector2(size)
+			_ghost_area.mesh = plane
+			_ghost_area.position.y = 0.03
+			_ghost_area.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			_ghost.add_child(_ghost_area)
+			if Game.BUILDINGS[placing].has("heal"):
+				_ghost.add_child(Building.range_ring(float(Game.BUILDINGS[placing]["heal"]["range"])))
+			add_child(_ghost)
+	if _ghost == null:
+		return
+	var size: Vector2i = Game.BUILDINGS[placing]["size"]
+	var cell := placement_cell()
+	var ok := Game.can_place(placing, Game.local_team, cell)
+	_ghost.position = Game.to3d((Vector2(cell) + Vector2(size) / 2.0) * Game.TILE)
+	var col := Color(0.3, 0.85, 1.0) if ok else Color(1.0, 0.25, 0.15)
+	Models.set_ghost(_ghost.get_node("model"), Color(col, 0.6))
+	_ghost_area.material_override = Fx3D.flat_material(Color(col, 0.25))

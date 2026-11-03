@@ -1,0 +1,33 @@
+{
+	"animations": {
+		"idle": {
+			"col": 0,
+			"frames": 4.0
+		}
+	},
+	"directions": [
+		"S",
+		"SSW",
+		"SW",
+		"WSW",
+		"W",
+		"WNW",
+		"NW",
+		"NNW",
+		"N",
+		"NNE",
+		"NE",
+		"ENE",
+		"E",
+		"ESE",
+		"SE",
+		"SSE"
+	],
+	"frame_h": 112,
+	"frame_w": 112,
+	"muzzle": {},
+	"origin": [
+		56,
+		69
+	]
+}

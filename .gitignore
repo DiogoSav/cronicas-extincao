@@ -1,0 +1,11 @@
+# Godot
+.godot/
+*.tmp
+# Exportação Web (publicada à parte, na branch gh-pages)
+web/
+# Configurações locais do Claude Code (o resto de .claude/ é do Claude Code Game Studios e é versionado)
+.claude/settings.local.json
+project.local.yaml
+# Renders intermediários do Blender (regerados por art_src/gen/render_tudo.sh)
+art_src/renders/
+__pycache__/

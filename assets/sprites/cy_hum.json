@@ -1,0 +1,18 @@
+{
+	"animations": {
+		"idle": {
+			"col": 0,
+			"frames": 1.0
+		}
+	},
+	"directions": [
+		"S"
+	],
+	"frame_h": 288,
+	"frame_w": 288,
+	"muzzle": {},
+	"origin": [
+		144,
+		178
+	]
+}

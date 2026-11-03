@@ -1,0 +1,25 @@
+{
+	"animations": {
+		"idle": {
+			"col": 0,
+			"frames": 1.0
+		}
+	},
+	"directions": [
+		"V0",
+		"V1",
+		"V2",
+		"V3",
+		"V4",
+		"V5",
+		"V6",
+		"V7"
+	],
+	"frame_h": 64,
+	"frame_w": 64,
+	"muzzle": {},
+	"origin": [
+		32,
+		39
+	]
+}

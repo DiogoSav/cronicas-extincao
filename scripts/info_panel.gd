@@ -1,0 +1,306 @@
+class_name InfoPanel
+extends PanelContainer
+## Painel no canto inferior esquerdo com os detalhes da seleção: uma unidade ou prédio
+## (ícone, vida, blindagem, arma, estado, produção) ou um resumo de várias unidades.
+
+const ARMOR_NAMES := {"light": "leve", "medium": "média", "heavy": "pesada", "building": "prédio"}
+const WEAPON_NAMES := GameTheme.WEAPON_NAMES
+## {r} = nome do recurso (data/theme.gd)
+const HARVEST_STATES := {"seek": "Procurando {r}", "to_ore": "Indo até os {r}",
+		"harvest": "Extraindo {r}", "return": "Voltando à refinaria",
+		"to_refinery": "Voltando à refinaria", "unload": "Descarregando", "manual": "Movendo"}
+
+var selection: Array = []
+var _single: HBoxContainer
+var _icon: TextureRect
+var _name: Label
+var _sub: Label
+var _hp_back: ColorRect
+var _hp_fill: ColorRect
+var _hp_text: Label
+var _stats: Label
+var _repair_btn: Button
+var _multi: VBoxContainer
+var _multi_title: Label
+var _grid: GridContainer
+## Barra de comandos: ordens para unidades, ou reciclar para prédios
+var _cmd: HBoxContainer
+var _cmd_buttons := {}
+const UNIT_COMMANDS := [
+	["move", "Mover", "M", "Anda até o ponto ignorando inimigos (ou botão direito)"],
+	["attack_move", "Atacar", "Ctrl+dir.", "Anda até o ponto atacando o que encontrar"],
+	["patrol", "Patrulha", "Q", "Vai e volta entre aqui e o ponto, atacando o que aparecer"],
+	["stop", "Parar", "X", "Para no lugar e esquece a ordem atual"],
+	["defend", "Defender", "G", "Postura: segura a posição e só atira no que estiver ao alcance"],
+	["aggressive", "Agressivo", "H", "Postura: persegue os inimigos que vê e depois volta"],
+	["unload", "Desembarcar", "U", "Os passageiros saem em volta do transporte (para embarcar: botão direito no transporte)"],
+]
+
+
+func _ready() -> void:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = HUD.PANEL
+	sb.border_color = HUD.BORDER
+	sb.set_border_width_all(2)
+	sb.set_content_margin_all(10)
+	add_theme_stylebox_override("panel", sb)
+	custom_minimum_size = Vector2(600, 150)
+	mouse_filter = Control.MOUSE_FILTER_STOP
+
+	var body := VBoxContainer.new()
+	body.add_theme_constant_override("separation", 8)
+	add_child(body)
+	_single = HBoxContainer.new()
+	_single.add_theme_constant_override("separation", 14)
+	body.add_child(_single)
+	_icon = TextureRect.new()
+	_icon.custom_minimum_size = Vector2(160, 120)
+	_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	_single.add_child(_icon)
+	var col := VBoxContainer.new()
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_theme_constant_override("separation", 3)
+	_single.add_child(col)
+	_name = Label.new()
+	_name.add_theme_font_size_override("font_size", 21)
+	_name.add_theme_color_override("font_color", HUD.ACCENT)
+	col.add_child(_name)
+	_sub = Label.new()
+	_sub.add_theme_font_size_override("font_size", 13)
+	_sub.add_theme_color_override("font_color", Color(0.55, 0.65, 0.75))
+	col.add_child(_sub)
+	var hp_row := HBoxContainer.new()
+	hp_row.add_theme_constant_override("separation", 8)
+	col.add_child(hp_row)
+	_hp_back = ColorRect.new()
+	_hp_back.color = Color(0, 0, 0, 0.85)
+	_hp_back.custom_minimum_size = Vector2(220, 10)
+	_hp_back.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	hp_row.add_child(_hp_back)
+	_hp_fill = ColorRect.new()
+	_hp_back.add_child(_hp_fill)
+	_hp_text = Label.new()
+	_hp_text.add_theme_font_size_override("font_size", 14)
+	hp_row.add_child(_hp_text)
+	# Conserto: pedido prédio a prédio (este botão ou a tecla K)
+	_repair_btn = Button.new()
+	_repair_btn.focus_mode = Control.FOCUS_NONE
+	_repair_btn.add_theme_font_size_override("font_size", 13)
+	_repair_btn.tooltip_text = "Custo por ponto de vida = metade do custo do prédio ÷ vida máxima (tecla K)"
+	_repair_btn.pressed.connect(_on_repair_pressed)
+	hp_row.add_child(_repair_btn)
+	_stats = Label.new()
+	_stats.add_theme_font_size_override("font_size", 14)
+	col.add_child(_stats)
+
+	_multi = VBoxContainer.new()
+	body.add_child(_multi)
+	_multi_title = Label.new()
+	_multi_title.add_theme_font_size_override("font_size", 19)
+	_multi_title.add_theme_color_override("font_color", HUD.ACCENT)
+	_multi.add_child(_multi_title)
+	_grid = GridContainer.new()
+	_grid.columns = 5
+	_grid.add_theme_constant_override("h_separation", 10)
+	_multi.add_child(_grid)
+
+	_cmd = HBoxContainer.new()
+	_cmd.add_theme_constant_override("separation", 6)
+	body.add_child(_cmd)
+	for c in UNIT_COMMANDS:
+		_cmd_buttons[c[0]] = _cmd_button("%s  (%s)" % [c[1], c[2]], c[3], _on_unit_command.bind(c[0]))
+	_cmd_buttons["recycle"] = _cmd_button("", "Desmonta o prédio e devolve 80% do custo (tecla Delete). Clique duas vezes para confirmar.",
+			_on_recycle_pressed)
+	visible = false
+
+
+func _cmd_button(text: String, tip: String, cb: Callable) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.tooltip_text = tip
+	b.focus_mode = Control.FOCUS_NONE
+	b.add_theme_font_size_override("font_size", 13)
+	b.pressed.connect(cb)
+	_cmd.add_child(b)
+	return b
+
+
+func _main():
+	return get_tree().current_scene
+
+
+func _on_unit_command(kind: String) -> void:
+	if kind in ["move", "attack_move", "patrol"]:
+		_main().set_order_mode(kind)
+	else:
+		_main().unit_order(kind)
+
+
+func _on_recycle_pressed() -> void:
+	_main().recycle_selected()
+
+
+## Atualiza a barra de comandos (postura destacada, reciclar).
+func refresh() -> void:
+	var units := selection.filter(func(e): return is_instance_valid(e) and e is Unit and e.team == Game.local_team)
+	var bldg := selection.filter(func(e): return is_instance_valid(e) and e is Building and e.team == Game.local_team and e.can_recycle())
+	for c in UNIT_COMMANDS:
+		_cmd_buttons[c[0]].visible = not units.is_empty()
+	var loaded := units.filter(func(u): return u.is_transport() and not u.passengers.is_empty())
+	_cmd_buttons["unload"].visible = not loaded.is_empty()
+	if not loaded.is_empty():
+		var n := 0
+		for u in loaded:
+			n += u.passengers.size()
+		_cmd_buttons["unload"].text = "Desembarcar %d  (U)" % n
+	for st in ["defend", "aggressive"]:
+		var all := not units.is_empty() and units.all(func(u): return u.stance == st)
+		_cmd_buttons[st].modulate = Color(0.5, 1.0, 0.6) if all else Color.WHITE
+	var rb: Button = _cmd_buttons["recycle"]
+	rb.visible = units.is_empty() and not bldg.is_empty()
+	if rb.visible:
+		var total := 0
+		for b in bldg:
+			total += b.recycle_value()
+		rb.text = ("Confirmar reciclagem?  +%d" if _main().recycle_armed() else "Reciclar  +%d  (Del)") % total
+	_cmd.visible = rb.visible or not units.is_empty()
+
+
+func set_selection(list: Array) -> void:
+	selection = list
+	visible = not list.is_empty()
+	_single.visible = list.size() == 1
+	_multi.visible = list.size() > 1
+	if list.size() == 1:
+		var e = list[0]
+		_icon.texture = Game.icon(e.model_name)
+		_name.text = Game.item_name(e.type, e.team)
+		var fac := Game.faction(e.team)
+		var kind := "Prédio" if e is Building else ("Infantaria" if e.is_infantry else ("Nave" if e.flying else "Veículo"))
+		_sub.text = "%s  ·  %s" % [kind, fac["army"]]
+	elif list.size() > 1:
+		_build_groups()
+	refresh()
+
+
+func _build_groups() -> void:
+	for c in _grid.get_children():
+		c.queue_free()
+	var counts := {}
+	var order: Array = []
+	for e in selection:
+		if not counts.has(e.model_name):
+			counts[e.model_name] = 0
+			order.append(e.model_name)
+		counts[e.model_name] += 1
+	_multi_title.text = "%d unidades selecionadas" % selection.size()
+	for m in order:
+		var cell := VBoxContainer.new()
+		cell.add_theme_constant_override("separation", 0)
+		var pic := TextureRect.new()
+		pic.texture = Game.icon(m)
+		pic.custom_minimum_size = Vector2(96, 72)
+		pic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		pic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		cell.add_child(pic)
+		var l := Label.new()
+		var data := Game.item_data(m) if Game.UNITS.has(m) else {}
+		l.text = "%s ×%d" % [data.get("short", m), counts[m]]
+		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		l.add_theme_font_size_override("font_size", 13)
+		cell.add_child(l)
+		_grid.add_child(cell)
+
+
+func _process(_delta: float) -> void:
+	if visible:
+		refresh()
+	if selection.size() != 1 or not is_instance_valid(selection[0]):
+		return
+	var e = selection[0]
+	var f := clampf(e.hp / e.max_hp, 0.0, 1.0)
+	_hp_fill.size = Vector2(_hp_back.custom_minimum_size.x * f, _hp_back.custom_minimum_size.y)
+	_hp_fill.color = Color(0.9, 0.2, 0.15) if f <= 0.25 else (Color(0.95, 0.7, 0.2) if f <= 0.5 else Color(0.45, 0.8, 0.3))
+	_hp_text.text = "Vida %d / %d" % [ceili(e.hp), int(e.max_hp)]
+	_stats.text = _building_stats(e) if e is Building else _unit_stats(e)
+	var mine: bool = e is Building and e.team == Game.local_team
+	_repair_btn.visible = mine and (e.repairing or e.can_repair())
+	if _repair_btn.visible:
+		_repair_btn.text = "Parar conserto" if e.repairing else "Consertar  (%d)" % e.repair_cost_total()
+
+
+func _on_repair_pressed() -> void:
+	if selection.size() != 1 or not is_instance_valid(selection[0]):
+		return
+	var b = selection[0]
+	if not (b is Building):
+		return
+	if b.repairing:
+		Game.request_repair(b, false)
+	elif Game.credits[b.team] < b.repair_cost_per_hp():
+		Game.message.emit("%s insuficientes para consertar" % GameTheme.CURRENCY)
+	else:
+		Game.request_repair(b, true)
+
+
+func _weapon_line(w: Dictionary) -> String:
+	if w.is_empty():
+		return "Desarmado"
+	var targets := "solo e ar" if w.get("air", false) and w.get("ground", true) else ("só ar" if w.get("air", false) else "só solo")
+	return "Arma: %s  ·  dano %d  ·  alcance %.1f  ·  %.1f tiros/s  ·  %s" % [
+			WEAPON_NAMES.get(w["type"], w["type"]), w["damage"], float(w["range"]) / Game.TILE,
+			1.0 / float(w["cooldown"]), targets]
+
+
+func _unit_stats(u: Unit) -> String:
+	var lines: Array = []
+	lines.append("Blindagem %s  ·  velocidade %.1f  ·  visão %d" % [
+			ARMOR_NAMES.get(u.armor, u.armor), u.speed / Game.TILE, u.sight])
+	lines.append(_weapon_line(u.weapon))
+	var state := "Parado"
+	if u is Harvester:
+		state = "%s  ·  carga %d / %d" % [HARVEST_STATES.get(u.state, "").replace("{r}", GameTheme.RESOURCE), int(u.cargo), int(Harvester.CAPACITY)]
+	elif u.has_target and u.valid_target(u.target):
+		state = "Em combate"
+	elif not u.is_idle():
+		state = "Andando atacando" if u.attack_move else "Movendo"
+	lines.append("Estado: " + state)
+	return "\n".join(lines)
+
+
+func _building_stats(b: Building) -> String:
+	var lines: Array = []
+	if not b.built:
+		lines.append("Em construção: %d%%" % int(b.build_t * 100.0))
+	elif b.repairing:
+		lines.append("CONSERTANDO  ·  %.2f créditos por ponto de vida" % b.repair_cost_per_hp())
+	elif b.hp < b.max_hp and b.team == Game.local_team:
+		lines.append("Danificado  ·  conserto: %.2f créditos por ponto de vida" % b.repair_cost_per_hp())
+	if b.team == Game.local_team and b.produces_units():
+		lines.append("Botão direito no mapa: ponto de reunião" + ("  (marcado)" if b.has_rally else ""))
+	if b.data.has("heal"):
+		var h: Dictionary = b.data["heal"]
+		lines.append("Cura %d%% da vida por segundo  ·  alcance %d células" % [
+				roundi(float(h["rate"]) * 100.0), roundi(float(h["range"]) / Game.TILE)])
+	var p: int = b.data["power"]
+	var power :=("Gera %d de energia" % p) if p > 0 else ("Consome %d de energia" % -p)
+	if p < 0 and Game.low_power(b.team):
+		power += "  ·  SEM ENERGIA SUFICIENTE"
+	lines.append(power)
+	if not b.weapon.is_empty():
+		lines.append(_weapon_line(b.weapon))
+	var cat: String = b.data["produces"]
+	if cat != "":
+		var job: Dictionary = Game.production[b.team].get(cat, {})
+		var line := "Produz %s" % Game.CATEGORY_NAMES[cat]
+		if not job.is_empty():
+			var item: String = Game.item_name(job["type"], b.team)
+			line += "  ·  %s: %s" % [item, "pronto" if job["done"] else "%d%%" % int(job["progress"] * 100.0)]
+			var waiting: int = Game.queued(b.team, cat).size()
+			if waiting > 0:
+				line += "  ·  +%d na fila" % waiting
+		lines.append(line)
+	elif b.type == "refinery":
+		lines.append("Recebe os %s dos coletores e gera %s" % [GameTheme.RESOURCE, GameTheme.CURRENCY.to_lower()])
+	return "\n".join(lines)
