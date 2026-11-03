@@ -164,6 +164,12 @@ case "$(printf '%s' "$ENGINE" | tr '[:upper:]' '[:lower:]')" in
   unity) CODE_ROOT="Assets" ;;
   unreal*) CODE_ROOT="Source" ;;
 esac
+# Override do projeto: `engine.code_root`, como em resolve_code_root (passo 2b).
+OVERRIDE=""
+[ -f project.local.yaml ] && OVERRIDE=$(yaml_get project.local.yaml engine.code_root)
+[ -z "$OVERRIDE" ] && [ -f project.yaml ] && OVERRIDE=$(yaml_get project.yaml engine.code_root)
+OVERRIDE="${OVERRIDE%/}"
+if [ -n "$OVERRIDE" ] && [ -d "$OVERRIDE" ]; then CODE_ROOT="$OVERRIDE"; CSRC="engine.code_root"; fi
 if [ -z "$CODE_ROOT" ]; then
   # No usable engine: believe the tree only when exactly one root is present.
   # Names are compared exactly against the listing, never with `[ -d Assets ]`,

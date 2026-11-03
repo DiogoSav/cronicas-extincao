@@ -1749,6 +1749,22 @@ implementation, review, and architecture validation
 
 ---
 
+## engine.code_root
+
+**Controls:** The directory holding game source code, overriding the engine's
+default row (Godot `src/`, Unity `Assets/`, Unreal `Source/`)  
+**Values:** a directory path relative to the project root (e.g. `scripts`)  
+**Default:** unset — the engine's row applies  
+**Set by:** the user, by hand or via `/settings`  
+**Read by:** `resolve_code_root` in `.claude/hooks/yaml-helper.sh` (validate-commit,
+detect-gaps, session-start, statusline) and `.claude/scripts/project-state.sh`
+(project-stage-detect, code-markers)
+
+> A path that does not exist is ignored, never treated as an empty root. One
+> directory only: consumers scan a single root.
+
+---
+
 ## commands
 
 > **Live since the run-and-observe step.** This block was RESERVED — written by

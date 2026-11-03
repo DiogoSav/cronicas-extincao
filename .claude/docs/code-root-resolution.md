@@ -19,6 +19,10 @@ code. This file is the procedure for applying it.
 
 ## Resolution order
 
+0. `engine.code_root` from `project.local.yaml`, then `project.yaml` — an explicit
+   project override of the engine's row (Godot only in practice: Unity and
+   Unreal compile nothing outside their roots). Ignored if the directory does
+   not exist.
 1. `engine.name` from `project.local.yaml`, then `project.yaml`.
 2. The legacy mirror: an `Engine:` line in
    `.claude/docs/technical-preferences.md`. A value of `[TO BE CONFIGURED]`

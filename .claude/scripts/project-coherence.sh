@@ -270,11 +270,14 @@ else
   if [ -z "$PHYSICS" ]; then
     skipped "physics — project.yaml has no engine.physics"
   elif printf '%s' "$PHYSICS" | grep -qiE 'jolt'; then
+    # A raiz de código resolvida (engine.code_root ou o padrão do motor), não src/ fixo.
+    CR=$(bash "$(dirname "$0")/project-state.sh" --root . 2>/dev/null | awk -F'	' '$1 == "code_root" { print $2 }')
+    [ -z "$CR" ] || [ "$CR" = "-" ] && CR="src"
     if grep -qE '(Node2D|CharacterBody2D|RigidBody2D|Area2D|StaticBody2D)' \
-         $(find src -name '*.gd' -o -name '*.tscn' 2>/dev/null) /dev/null 2>/dev/null; then
-      differs "engine.physics is 'Jolt', but 2D nodes were found under src/. Jolt is Godot's default 3D engine; 2D still uses Godot Physics 2D (docs/engine-reference/godot/modules/physics.md)."
+         $(find "$CR" -name '*.gd' -o -name '*.tscn' 2>/dev/null) /dev/null 2>/dev/null; then
+      differs "engine.physics is 'Jolt', but 2D nodes were found under $CR/. Jolt is Godot's default 3D engine; 2D still uses Godot Physics 2D (docs/engine-reference/godot/modules/physics.md)."
     else
-      match "engine.physics ($PHYSICS) — no 2D nodes found under src/ to contradict it"
+      match "engine.physics ($PHYSICS) — no 2D nodes found under $CR/ to contradict it"
     fi
   else
     match "engine.physics ($PHYSICS)"

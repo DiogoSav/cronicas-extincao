@@ -1478,6 +1478,18 @@ resolve_code_root() {
     *)       root="" ;;
   esac
 
+  # 2b. Override do projeto: `engine.code_root` (project.local.yaml, depois
+  #     project.yaml) troca o padrão do motor. Só no Godot isso é seguro — Unity
+  #     e Unreal compilam apenas a raiz deles —, mas a chave é do usuário; um
+  #     diretório inexistente é ignorado para não virar varredura vazia.
+  local override=""
+  [ -f "$_YH_ROOT/project.local.yaml" ] && override=$(get_yaml_key "$_YH_ROOT/project.local.yaml" engine.code_root 2>/dev/null)
+  [ -z "$override" ] && [ -f "$_YH_ROOT/project.yaml" ] && override=$(get_yaml_key "$_YH_ROOT/project.yaml" engine.code_root 2>/dev/null)
+  override="${override%/}"
+  if [ -n "$override" ] && [ -d "$_YH_ROOT/$override" ]; then
+    root="$override"; src="engine.code_root"
+  fi
+
   # 3. No usable engine value — believe the tree, but only if it is unambiguous.
   #    Names are compared exactly, against the directory listing: `[ -d Assets ]`
   #    is also true for Godot's own `assets/` on a case-insensitive filesystem
