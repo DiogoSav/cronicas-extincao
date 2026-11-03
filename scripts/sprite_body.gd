@@ -16,12 +16,19 @@ const PX_PER_UNIT := 48.0
 ## a câmera fica a sudeste olhando para noroeste; o mapa aparece como um losango).
 const ELEVATION := deg_to_rad(30.0)
 const YAW := deg_to_rad(45.0)
+## Torre: desenhada logo depois do próprio casco (ordem pela distância à câmera, deslocada
+## um pouco para a frente). Positivo = desenha depois; medido no Godot 4.7
+## (tests/visual/sprites_ordem_teste.gd), a doc não fixa o sinal.
+const TURRET_SORT_OFFSET := 0.05
 
 static var _sheets := {}
 static var _mats := {}
 
 ## Material dos sprites: sem luz (a luz já está no render), sem teste de profundidade (a
-## sombra fica abaixo dos pés) e escurecido pela névoa de guerra no ponto dos pés.
+## sombra fica abaixo dos pés) e escurecido pela névoa de guerra no ponto dos pés. Sem
+## profundidade, quem decide quem fica na frente é a ordenação de transparentes: cada
+## Sprite3D ordena pela origem do nó (os pés), não pelo centro da imagem — um prédio alto
+## teria o centro "mais perto" da câmera que uma unidade parada na frente dele.
 const SHADER := """
 shader_type spatial;
 render_mode unshaded, depth_test_disabled, cull_disabled, blend_mix;
@@ -44,7 +51,7 @@ void fragment() {
 static var _shader: Shader
 
 
-## Um material por folha (e prioridade: a torre desenha por cima do casco).
+## Um material por folha.
 static func material_for(tex: Texture2D, prio := 0) -> ShaderMaterial:
 	var key := "%d:%d" % [tex.get_rid().get_id(), prio]
 	if _mats.has(key):
@@ -70,6 +77,7 @@ static func make_static(model_name: String, row: int) -> Sprite3D:
 	s.region_enabled = true
 	s.pixel_size = 1.0 / PX_PER_UNIT
 	s.rotation = Vector3(-ELEVATION, YAW, 0.0)   # plano perpendicular à câmera
+	s.sorting_use_aabb_center = false            # ordena pelos pés (ver SHADER)
 	var fw: float = info["frame_w"]
 	var fh: float = info["frame_h"]
 	var o: Array = info["origin"]
@@ -110,7 +118,10 @@ static func make(model_name: String) -> SpriteBody:
 	b.turret_sheet = _load(model_name + "_turret")
 	b.spr = b._new_sprite(b.sheet, 0)
 	if not b.turret_sheet.is_empty():
-		b.tur = b._new_sprite(b.turret_sheet, 1)
+		# Mesma prioridade do casco: render_priority vale para a cena inteira e poria toda
+		# torre por cima de todos os prédios. A torre só precisa vir logo depois do casco.
+		b.tur = b._new_sprite(b.turret_sheet, 0)
+		b.tur.sorting_offset = TURRET_SORT_OFFSET
 	b.set_frame(0.0, "idle", 0)
 	return b
 
@@ -123,6 +134,7 @@ func _new_sprite(sh: Dictionary, prio: int) -> Sprite3D:
 	s.region_enabled = true
 	s.pixel_size = 1.0 / PX_PER_UNIT
 	s.rotation = Vector3(-ELEVATION, YAW, 0.0)   # plano perpendicular à câmera
+	s.sorting_use_aabb_center = false            # ordena pelos pés (ver SHADER)
 	var fw: float = info["frame_w"]
 	var fh: float = info["frame_h"]
 	var o: Array = info["origin"]

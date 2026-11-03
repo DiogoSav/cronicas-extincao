@@ -26,6 +26,8 @@ func setup(model_name: String, u) -> void:
 	visible = u.visible
 	body = SpriteBody.make(model_name)
 	add_child(body)
+	if _infantry:
+		body.spr.sorting_offset = -0.4   # cadáver desenha antes (embaixo) das unidades vivas
 	if _infantry and body.has_anim("death"):
 		var anim := "death"
 		var from: Vector2 = u.last_hit_from - u.position
