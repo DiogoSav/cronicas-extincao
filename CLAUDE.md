@@ -1,0 +1,106 @@
+# Crônicas da Extinção — Claude Code Game Studios
+
+RTS de ficção científica sombria (Godot 4.7.2) com três facções — Império da Cinza (humanos),
+Legião Sintética (robôs) e Enxame Abissal (insetos) — em sprites pré-renderizados numa vista
+isométrica, e campanhas de 7 missões por facção. Este arquivo é o do template Claude Code Game
+Studios adaptado ao projeto.
+
+## Projeto (leia primeiro)
+
+- **Idioma**: responda, escreva documentos e comentários de código em português do Brasil.
+- **Base técnica**: o jogo nasceu do RTS Kit (`H:\Jogos\rts-kit`); o motor está em `scripts/`
+  e o conteúdo em `data/` — o código NÃO fica em `src/` como no template. Mecânicas, campos de
+  dados, modo sprite, transporte e campanha: `docs/MECANICAS.md` (fonte da verdade do motor).
+- **Conteúdo**: `data/game_data.gd` (facções, unidades, prédios), `data/theme.gd` (tema),
+  `data/campaign.gd` (missões; controlador em `scripts/mission.gd`).
+- **Referências do usuário**: `H:\Jogos\referencia facções\` — pranchas de cada facção e o
+  roteiro `Cronicas_da_Extincao_Roteiro_21_Missoes.md` (21 missões; H01 e H02 prontas).
+- **Arte**: modelos Python para Blender em `art_src/blender/` (`human.py`, `legiao.py`,
+  `enxame.py`, prédios em `robot.py`/`insect.py`, cenário em `props.py`, infantaria detalhada do
+  Império em `infantaria.py`) → `render_sprites.py` → `art_src/gen/pixelize.gd` →
+  `assets/sprites/<modelo>.png/.json`. Tudo de novo: `sh art_src/gen/render_tudo.sh` (~2 h).
+- **Preferência do usuário**: quando ele disser para não esperar aprovação, implemente e
+  apresente o resultado testado (prints) em vez de parar em cada passo.
+
+Indie game development managed through 49 coordinated Claude Code subagents.
+Each agent owns a specific domain, enforcing separation of concerns and quality.
+
+## Technology Stack
+
+- **Engine**: Godot 4.7.2 (`H:\Jogos\Godot\Godot_v4.7.2-stable_win64_console.exe`)
+- **Language**: GDScript
+- **Version Control**: Git with trunk-based development
+- **Build System**: `jogar.bat` (rodar), export presets do Godot (PC e Web)
+- **Asset Pipeline**: Blender 5.2 (modelos procedurais em Python) → sprites pré-renderizados
+  (Cycles, vista isométrica 30°/45°) → pixelização no Godot
+
+> **Note**: Engine-specialist agents exist for Godot, Unity, and Unreal with
+> dedicated sub-specialists. Use the set matching your engine.
+
+## Project Structure
+
+@.claude/docs/directory-structure.md
+
+## Engine Version Reference
+
+<!-- ENGINE-REFERENCE-IMPORT: the line below is engine-specific. /setup-engine
+     rewrites it to @docs/engine-reference/<engine>/VERSION.md for the chosen
+     engine, so a Unity or Unreal project stops loading the Godot reference every
+     session. It defaults to Godot (the template's example engine); skills that
+     need the pinned version read docs/engine-reference/<engine>/VERSION.md on
+     demand regardless of this import. -->
+@docs/engine-reference/godot/VERSION.md
+
+
+## Technical Preferences
+
+`project.yaml` at the repo root is the primary config store — engine, specialists,
+naming, platform, performance, modes. Skills resolve it via `resolve_config`
+(see `.claude/docs/config-resolution.md`).
+
+`.claude/docs/technical-preferences.md` is the **legacy fallback**, read on demand
+when a key is absent from `project.yaml`. It is not imported here: before
+`/setup-engine` runs it is almost entirely `[TO BE CONFIGURED]` placeholders, and
+after it runs `project.yaml` holds the real values.
+
+## Coordination Rules
+
+@.claude/docs/coordination-rules.md
+
+## Collaboration Protocol
+
+**User-driven collaboration, not autonomous execution.**
+Every task follows: **Question -> Options -> Decision -> Draft -> Approval**
+
+- Agents MUST ask "May I write this to [filepath]?" before using Write/Edit tools
+  (exempt: `active.md` appends, agent memory, a subagent's new file at the path
+  its orchestrating skill named; see `.claude/rules/agent-memory.md`)
+- Agents MUST show drafts or summaries before requesting approval
+- Multi-file changes require explicit approval for the full changeset
+- No commits without user instruction
+- A skipped or dismissed question is not an answer: act on nothing, re-ask in
+  plain text and wait
+- Started outside this file's folder? Warn first: hooks, deny rules and the
+  ask-first mode load only when Claude Code starts here
+
+See `docs/COLLABORATIVE-DESIGN-PRINCIPLE.md` for full protocol and examples.
+
+> **First session?** If the project has no engine configured and no game concept,
+> run `/start` to begin the guided onboarding flow.
+
+## Coding Standards
+
+@.claude/docs/coding-standards.md
+
+## Context Management
+
+Read `.claude/docs/context-management.md` on demand — it is a reference, not
+session context. Two of its conventions are load-bearing and cited by name
+elsewhere in the repo, so they are restated here rather than lost:
+
+- **`production/session-state/active.md` is the session checkpoint.** The file is
+  the memory, not the conversation. Read it first after any compaction, crash, or
+  `/clear`.
+- **Helpers in `.claude/scripts/` emit observations, never verdicts.** A script
+  that scores or judges will eventually contradict a mode or override it cannot
+  see. (Cited by `artifact-check.sh` and `adr-dep-graph.sh`.)
