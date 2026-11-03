@@ -7,6 +7,8 @@ signal game_ended(player_won: bool)
 ## Prédio do jogador local sofreu dano (já filtrado pelo intervalo de alerta). Ligue aqui o
 ## som de alerta do seu jogo.
 signal base_alert(building)
+## Mudou a velocidade do jogo (índice em GameData.SPEED_STEPS)
+signal speed_changed(level: int)
 
 const TILE := 32
 const PLAYER := 0
@@ -181,6 +183,8 @@ func reset() -> void:
 	entities = []
 	game_over = false
 	pings = []
+	speed_level = 0
+	Engine.time_scale = 1.0
 	map = null
 	world = null
 	fog = null
@@ -567,6 +571,22 @@ func building_attacked(b) -> void:
 	message.emit("ALERTA: %s sob ataque!  (Espaço: ir até lá)" % item_name(b.type, b.team))
 	base_alert.emit(b)
 	Sfx.base_alert()
+
+
+## Velocidade do jogo: índice em GameData.SPEED_STEPS (0 = normal). Volta a 0 em reset().
+var speed_level := 0
+
+
+## Muda a velocidade para o nível `level` (limitado aos níveis existentes). No multiplayer
+## fica fixa: os dois computadores precisam rodar no mesmo ritmo.
+func set_speed_level(level: int) -> void:
+	if Net.active:
+		message.emit("Velocidade fixa no multiplayer")
+		return
+	speed_level = clampi(level, 0, GameData.SPEED_STEPS.size() - 1)
+	Engine.time_scale = GameData.SPEED_STEPS[speed_level]
+	message.emit("Velocidade do jogo: %d%%" % roundi(Engine.time_scale * 100.0))
+	speed_changed.emit(speed_level)
 
 
 ## Pisca no minimapa: [{pos, t}] de avisos fora da tela (prédio perdido, coletor atacado,

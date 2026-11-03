@@ -58,9 +58,12 @@ func _ready() -> void:
 	var fac := Game.faction(Game.local_team)
 	var title := Label.new()
 	title.text = GameTheme.TITLE
-	title.add_theme_font_size_override("font_size", 18)
+	title.add_theme_font_size_override("font_size", 16)
 	title.add_theme_color_override("font_color", ACCENT)
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	# Divide a linha com os botões de velocidade e MENU: corta o título em vez de empurrá-los
+	title.clip_text = true
+	title.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	var top := HBoxContainer.new()
 	box.add_child(top)
 	top.add_child(title)
@@ -70,6 +73,18 @@ func _ready() -> void:
 	menu_b.focus_mode = Control.FOCUS_NONE
 	menu_b.add_theme_font_size_override("font_size", 13)
 	menu_b.pressed.connect(func(): pause_requested.emit())
+	# Velocidade do jogo: cada clique sobe um nível e, depois do último, volta ao normal
+	if not Net.active:
+		var speed_b := Button.new()
+		speed_b.text = "▶100%"
+		speed_b.tooltip_text = "Velocidade do jogo (+ acelera, − desacelera)"
+		speed_b.focus_mode = Control.FOCUS_NONE
+		speed_b.add_theme_font_size_override("font_size", 13)
+		speed_b.pressed.connect(func():
+			Game.set_speed_level((Game.speed_level + 1) % GameData.SPEED_STEPS.size()))
+		Game.speed_changed.connect(func(lv: int):
+			speed_b.text = "%s%d%%" % ["▶" if lv == 0 else "▶▶", roundi(GameData.SPEED_STEPS[lv] * 100.0)])
+		top.add_child(speed_b)
 	top.add_child(menu_b)
 	var side_label := Label.new()
 	side_label.text = "%s — %s" % [fac["army"], fac["name"]]
@@ -116,7 +131,7 @@ func _ready() -> void:
 	_section(box, "NAVES", fac["air"])
 
 	var help := Label.new()
-	help.text = "Arrastar: selecionar  ·  Dir.: mover / atacar / ponto de reunião  ·  Ctrl+dir.: atacar andando  ·  M mover · Q patrulha · X parar · G defender · H agressivo  ·  Ctrl+1..9: grupo  ·  Espaço: último alerta  ·  K: consertar · Del: reciclar  ·  WASD: câmera  ·  P: pausa"
+	help.text = "Arrastar: selecionar  ·  Dir.: mover / atacar / ponto de reunião  ·  Ctrl+dir.: atacar andando  ·  M mover · Q patrulha · X parar · G defender · H agressivo  ·  Ctrl+1..9: grupo  ·  Espaço: último alerta  ·  K: consertar · Del: reciclar  ·  WASD: câmera  ·  + −: velocidade  ·  P: pausa"
 	help.add_theme_font_size_override("font_size", 13)
 	help.add_theme_color_override("font_color", Color(0.5, 0.6, 0.7, 0.8))
 	help.position = Vector2(16, 1080 - 30)

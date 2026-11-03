@@ -23,6 +23,13 @@ var _tx_text: Label
 var _tx_queue: Array = []
 var _tx_t := 0.0
 var _modal: Control
+## Cronômetro dos objetivos de tempo ("survive"): painel no topo, centrado na área de jogo
+var _timer_panel: PanelContainer
+var _timer_label: Label
+var _timer_caption: Label
+var _timer_sec := -1
+## O cronômetro fica vermelho nos últimos segundos
+const TIMER_WARN := 60.0
 
 
 ## Lista de missões concluídas (salva no computador do jogador).
@@ -112,6 +119,7 @@ func _process(delta: float) -> void:
 	if _ended or get_tree().paused or Game.game_over:
 		return
 	time += delta
+	_update_timer()
 	_check_t -= delta
 	if _check_t > 0.0:
 		return
@@ -253,6 +261,32 @@ func _build_ui() -> void:
 	_obj_label.add_theme_font_size_override("bold_font_size", 17)
 	obj.add_child(_obj_label)
 
+	# Cronômetro: topo, centrado na área de jogo (à esquerda do painel lateral)
+	_timer_panel = PanelContainer.new()
+	_timer_panel.add_theme_stylebox_override("panel", _panel_style(0.85))
+	_timer_panel.anchor_left = 0.5
+	_timer_panel.anchor_right = 0.5
+	_timer_panel.offset_left = -HUD.SIDEBAR_W / 2.0 - 170.0
+	_timer_panel.offset_right = -HUD.SIDEBAR_W / 2.0 + 170.0
+	_timer_panel.offset_top = 12
+	_timer_panel.visible = false
+	add_child(_timer_panel)
+	var tv := VBoxContainer.new()
+	tv.alignment = BoxContainer.ALIGNMENT_CENTER
+	_timer_panel.add_child(tv)
+	_timer_label = Label.new()
+	_timer_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_timer_label.add_theme_font_size_override("font_size", 34)
+	_timer_label.add_theme_color_override("font_color", GameTheme.TEXT)
+	tv.add_child(_timer_label)
+	_timer_caption = Label.new()
+	_timer_caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_timer_caption.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_timer_caption.custom_minimum_size = Vector2(316, 0)
+	_timer_caption.add_theme_font_size_override("font_size", 15)
+	_timer_caption.add_theme_color_override("font_color", GameTheme.ACCENT)
+	tv.add_child(_timer_caption)
+
 	# Transmissões: faixa na parte de baixo, à esquerda do painel lateral
 	_tx_panel = PanelContainer.new()
 	_tx_panel.add_theme_stylebox_override("panel", _panel_style())
@@ -284,8 +318,40 @@ func _refresh_objectives() -> void:
 		if done.has(o["id"]):
 			t += "[color=#7fd36a]■ %s[/color]\n" % o["text"]
 		else:
-			t += "[color=#%s]□ %s[/color]\n" % [GameTheme.TEXT.to_html(false), o["text"]]
+			var left := ""
+			if o["type"] == "survive":
+				left = "  [b]%s[/b]" % _clock(float(o["t"]) - time)
+			t += "[color=#%s]□ %s%s[/color]\n" % [GameTheme.TEXT.to_html(false), o["text"], left]
 	_obj_label.text = t.strip_edges()
+
+
+## mm:ss de um tempo em segundos (nunca negativo).
+static func _clock(seconds: float) -> String:
+	var s := maxi(0, ceili(seconds))
+	return "%02d:%02d" % [s / 60, s % 60]
+
+
+## Primeiro objetivo de tempo ainda não cumprido: mostra o cronômetro e atualiza o tempo
+## restante no painel de objetivos uma vez por segundo.
+func _update_timer() -> void:
+	var cur: Dictionary = {}
+	for o in data["objectives"]:
+		if o["type"] == "survive" and not done.has(o["id"]):
+			cur = o
+			break
+	_timer_panel.visible = not cur.is_empty()
+	if cur.is_empty():
+		return
+	var left := float(cur["t"]) - time
+	var sec := maxi(0, ceili(left))
+	if sec == _timer_sec:
+		return
+	_timer_sec = sec
+	_timer_label.text = _clock(left)
+	_timer_label.add_theme_color_override("font_color",
+			Color(1.0, 0.3, 0.2) if left <= TIMER_WARN else GameTheme.TEXT)
+	_timer_caption.text = String(cur["text"])
+	_refresh_objectives()
 
 
 ## Mensagem de rádio de um personagem (fila: uma de cada vez, ~9 s cada).

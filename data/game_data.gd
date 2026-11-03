@@ -386,6 +386,10 @@ const AI_WEIGHTS := {
 	"air": [3, 0, 2],
 }
 
+## Velocidade do jogo (Engine.time_scale): normal e três níveis acima, de 25% em 25%.
+## Só fora do multiplayer. Teclas + e − na partida, ou o botão ao lado do MENU.
+const SPEED_STEPS := [1.0, 1.25, 1.5, 1.75]
+
 ## IA: níveis de dificuldade. A missão escolhe com "ai": {"difficulty": ...}; a escaramuça,
 ## pelo seletor do menu. first_wave e wave_size da missão têm prioridade sobre estes valores.
 ## Spec: design/quick-specs/ia-inimiga-terceiro-time-2026-11-03.md (ponto de partida, sem

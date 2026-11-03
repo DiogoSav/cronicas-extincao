@@ -40,6 +40,8 @@ const ORDER_NAMES := {"move": "Mover", "attack_move": "Atacar andando", "patrol"
 
 func _ready() -> void:
 	Game.reset()
+	# Ao sair da partida (menu, nova cena) o jogo volta à velocidade normal
+	tree_exiting.connect(func(): Engine.time_scale = 1.0)
 
 	world = Node3D.new()
 	world.name = "World"
@@ -265,6 +267,10 @@ func _unhandled_input(event: InputEvent) -> void:
 				pause_menu.open()
 		elif event.keycode == KEY_P:
 			pause_menu.open()
+		elif event.keycode in [KEY_EQUAL, KEY_PLUS, KEY_KP_ADD] and not Game.game_over:
+			Game.set_speed_level(Game.speed_level + 1)
+		elif event.keycode in [KEY_MINUS, KEY_KP_SUBTRACT] and not Game.game_over:
+			Game.set_speed_level(Game.speed_level - 1)
 		elif Game.game_over:
 			pass
 		elif event.keycode == KEY_K:
