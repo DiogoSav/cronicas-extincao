@@ -25,3 +25,47 @@ framework:
 # here. `/settings --local <key>=<value>` writes there; `/settings <key>=<value>`
 # edits this file. See `.claude/docs/config-resolution.md` for the full
 # precedence order.
+
+# ATENÇÃO — raiz do código: este projeto NÃO usa src/ (padrão Godot do template).
+# O motor do jogo está em scripts/ e o conteúdo em data/ (veja CLAUDE.md e
+# docs/MECANICAS.md). O framework não tem chave para isso (resolve_code_root
+# fixa Godot -> src), então hooks/statusline que contam código em src/ verão 0
+# arquivos. Agentes: leiam e escrevam código em scripts/ e data/, nunca em src/.
+
+engine:
+  name: "Godot"
+  version: "4.7.2"
+  language: "GDScript"
+  # rendering: PC usa Forward+; a Web usa Compatibility via renderer/rendering_method.web no project.godot
+  rendering: "Forward+"
+  # physics: padrão 3D do Godot 4.6+; a lógica do jogo roda no plano do chão (Vector2), sem física de corpos
+  physics: "Jolt"
+  path: "H:/Jogos/Godot/Godot_v4.7.2-stable_win64_console.exe"
+
+specialists:
+  code: "godot-gdscript-specialist"
+  shader: "godot-shader-specialist"
+  ui: "godot-specialist"
+  additional: ["godot-gdextension-specialist"]
+
+naming:
+  classes: PascalCase
+  variables: snake_case
+  constants: SCREAMING_SNAKE
+  signals: past_tense
+  files: snake_case
+  scenes: snake_case
+
+commands:
+  build: '"H:/Jogos/Godot/Godot_v4.7.2-stable_win64_console.exe" --headless --export-debug "Web"'
+  test: '"H:/Jogos/Godot/Godot_v4.7.2-stable_win64_console.exe" --headless -s -d --remote-debug tcp://127.0.0.1:0 res://addons/gdUnit4/bin/GdUnitCmdTool.gd -a res://tests --ignoreHeadlessMode'
+  run: '"H:/Jogos/Godot/Godot_v4.7.2-stable_win64_console.exe" --path . --windowed --resolution 1280x720'
+  smoke: '"H:/Jogos/Godot/Godot_v4.7.2-stable_win64_console.exe" --headless --quit-after 5'
+
+testing:
+  framework: "gdUnit4"
+
+performance:
+  target_framerate: 60
+  frame_budget_ms: 16.67
+  draw_call_limit: 2000
