@@ -151,7 +151,7 @@ const UNITS := {
 		"weapon": {"damage": 18, "range": 140.0, "cooldown": 1.0, "type": "missile", "air": true},
 	},
 	"hum_nave": {
-		"name": "Nave de Transporte", "short": "Nave Transp.", "kind": "air", "category": "air", "pop": 3,
+		"name": "Nave de Transporte", "short": "N. Transp.", "kind": "air", "category": "air", "pop": 3,
 		"cost": 900, "time": 10.0, "requires": [], "hp": 420, "speed": 70.0, "radius": 15.0, "sight": 6,
 		"armor": "heavy", "desc": "Robusta e blindada: leva 10 vagas de tropas e veículos leves (até Transporte).",
 		"weapon": {"damage": 5, "range": 120.0, "cooldown": 0.3, "type": "mg"},
@@ -209,13 +209,13 @@ const UNITS := {
 		"transport": {"capacity": 6, "carries": ["inf"]},
 	},
 	"rob_tank": {
-		"name": "Aniquilador", "short": "Aniquilador", "kind": "veh", "category": "vehicle",
+		"name": "Aniquilador", "short": "Aniquil.", "kind": "veh", "category": "vehicle",
 		"cost": 1000, "time": 11.0, "requires": [], "hp": 520, "speed": 46.0, "radius": 13.0, "sight": 6,
 		"armor": "heavy", "desc": "Tanque de assalto andador com canhão de alto calibre.",
 		"weapon": {"damage": 42, "range": 155.0, "cooldown": 1.8, "type": "cannon"},
 	},
 	"rob_heavy": {
-		"name": "Devastador", "short": "Devastador", "kind": "veh", "category": "vehicle",
+		"name": "Devastador", "short": "Devast.", "kind": "veh", "category": "vehicle",
 		"cost": 1500, "time": 15.0, "requires": ["refinery"], "hp": 450, "speed": 34.0, "radius": 15.0,
 		"sight": 7, "armor": "medium", "desc": "Artilharia móvel: salva de mísseis em área.",
 		"weapon": {"damage": 72, "range": 260.0, "cooldown": 4.0, "type": "missile"},
@@ -309,7 +309,7 @@ const UNITS := {
 		"heal": {"range": 160.0, "rate": 0.035, "targets": "bio"},
 	},
 	"ins_gunship": {
-		"name": "Bombardeiro", "short": "Bombardeiro", "kind": "air", "category": "air",
+		"name": "Bombardeiro", "short": "Bombard.", "kind": "air", "category": "air",
 		"cost": 1450, "time": 14.0, "requires": ["refinery"], "hp": 600, "speed": 50.0, "radius": 18.0,
 		"sight": 7, "armor": "medium", "desc": "Lança cargas biológicas corrosivas (só solo).",
 		"weapon": {"damage": 52, "range": 150.0, "cooldown": 2.0, "type": "cannon"},

@@ -26,10 +26,19 @@ var _modal: Control
 ## Cronômetro dos objetivos de tempo ("survive"): painel no topo, centrado na área de jogo
 var _timer_panel: PanelContainer
 var _timer_label: Label
-var _timer_caption: Label
 var _timer_sec := -1
-## O cronômetro fica vermelho nos últimos segundos
+## Abaixo disto o cronômetro fica âmbar com "!"
 const TIMER_WARN := 60.0
+var _root: Control
+var _obj_panel: PanelContainer
+var _tx_bar: ColorRect
+var _tx_total := 1.0
+var _timer_icon: UiSkin.Glyph
+var _timer_warn: Label
+## Linhas no painel de objetivos (altura máx. ~220 lógicos)
+const MAX_OBJ_LINES := 6
+## Nos últimos segundos o cronômetro pulsa (1 Hz)
+const TIMER_PULSE := 15.0
 
 
 ## Lista de missões concluídas (salva no computador do jogador).
@@ -234,95 +243,139 @@ func _finish(won: bool) -> void:
 
 
 # ---------------------------------------------------------------- interface
-
-func _panel_style(alpha := 0.9) -> StyleBoxFlat:
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(GameTheme.PANEL, alpha)
-	sb.border_color = GameTheme.BORDER
-	sb.set_border_width_all(2)
-	sb.set_corner_radius_all(3)
-	sb.set_content_margin_all(12)
-	return sb
-
+# Layout (production/ui/hud-e-menu/ux-spec.md, 3.2–3.5): objetivos no canto superior
+# esquerdo, cronômetro compacto no topo do centro do campo, rádio no canto inferior
+# esquerdo. Tudo ancorado (unidades lógicas), na skin da facção do jogador.
 
 func _build_ui() -> void:
-	# Objetivos: canto superior esquerdo
-	var obj := PanelContainer.new()
-	obj.add_theme_stylebox_override("panel", _panel_style(0.82))
-	obj.position = Vector2(12, 12)
-	obj.custom_minimum_size = Vector2(430, 0)
-	add_child(obj)
+	UiSkin.install()
+	var fkey := UiSkin.player_key()
+	var title_col: Color = UiSkin.skin(fkey)["title"]
+	_root = Control.new()
+	_root.name = "MissaoRoot"
+	_root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_root.theme = UiSkin.theme(fkey)
+	add_child(_root)
+
+	# Objetivos: canto superior esquerdo, 380 de largura
+	_obj_panel = PanelContainer.new()
+	_obj_panel.name = "Objetivos"
+	_obj_panel.add_theme_stylebox_override("panel", UiSkin.frame(fkey, "n1"))
+	_obj_panel.position = Vector2(12, 12)
+	_obj_panel.custom_minimum_size = Vector2(380, 0)
+	_root.add_child(_obj_panel)
+	var ov := VBoxContainer.new()
+	ov.add_theme_constant_override("separation", 4)
+	_obj_panel.add_child(ov)
+	var oh := HBoxContainer.new()
+	ov.add_child(oh)
+	oh.add_child(UiSkin.label("OBJETIVOS", 15, title_col, true))
+	var mt := UiSkin.label("%s · %s" % [Game.mission_id, String(data["title"])], 14, UiSkin.TEXT_MID)
+	mt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	mt.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	mt.clip_text = true
+	mt.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	oh.add_child(mt)
 	_obj_label = RichTextLabel.new()
 	_obj_label.bbcode_enabled = true
 	_obj_label.fit_content = true
 	_obj_label.scroll_active = false
-	_obj_label.custom_minimum_size = Vector2(406, 0)
-	_obj_label.add_theme_font_size_override("normal_font_size", 16)
-	_obj_label.add_theme_font_size_override("bold_font_size", 17)
-	obj.add_child(_obj_label)
+	_obj_label.custom_minimum_size = Vector2(360, 0)
+	_obj_label.add_theme_font_size_override("normal_font_size", 15)
+	_obj_label.add_theme_font_size_override("bold_font_size", 15)
+	_obj_label.add_theme_constant_override("line_separation", 2)
+	ov.add_child(_obj_label)
 
-	# Cronômetro: topo, centrado na área de jogo (à esquerda do painel lateral)
+	# Cronômetro: 150×44 no topo, centrado no campo (fora da barra lateral)
 	_timer_panel = PanelContainer.new()
-	_timer_panel.add_theme_stylebox_override("panel", _panel_style(0.85))
+	_timer_panel.name = "Cronometro"
+	_timer_panel.add_theme_stylebox_override("panel", UiSkin.frame(fkey, "n2"))
 	_timer_panel.anchor_left = 0.5
 	_timer_panel.anchor_right = 0.5
-	_timer_panel.offset_left = -HUD.SIDEBAR_W / 2.0 - 170.0
-	_timer_panel.offset_right = -HUD.SIDEBAR_W / 2.0 + 170.0
+	_timer_panel.offset_left = -HUD.SIDEBAR_W / 2 - 75
+	_timer_panel.offset_right = -HUD.SIDEBAR_W / 2 + 75
 	_timer_panel.offset_top = 12
+	_timer_panel.offset_bottom = 56
 	_timer_panel.visible = false
-	add_child(_timer_panel)
-	var tv := VBoxContainer.new()
-	tv.alignment = BoxContainer.ALIGNMENT_CENTER
-	_timer_panel.add_child(tv)
-	_timer_label = Label.new()
-	_timer_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_timer_label.add_theme_font_size_override("font_size", 34)
-	_timer_label.add_theme_color_override("font_color", GameTheme.TEXT)
-	tv.add_child(_timer_label)
-	_timer_caption = Label.new()
-	_timer_caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_timer_caption.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_timer_caption.custom_minimum_size = Vector2(316, 0)
-	_timer_caption.add_theme_font_size_override("font_size", 15)
-	_timer_caption.add_theme_color_override("font_color", GameTheme.ACCENT)
-	tv.add_child(_timer_caption)
+	_root.add_child(_timer_panel)
+	var th := HBoxContainer.new()
+	th.alignment = BoxContainer.ALIGNMENT_CENTER
+	th.add_theme_constant_override("separation", 6)
+	_timer_panel.add_child(th)
+	_timer_icon = UiSkin.Glyph.new("clock", UiSkin.TEXT_HI, 22)
+	_timer_icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	th.add_child(_timer_icon)
+	_timer_label = UiSkin.label("00:00", 28, UiSkin.TEXT_HI, true)
+	th.add_child(_timer_label)
+	_timer_warn = UiSkin.label("!", 28, UiSkin.WARN, true)
+	_timer_warn.visible = false
+	th.add_child(_timer_warn)
 
-	# Transmissões: faixa na parte de baixo, à esquerda do painel lateral
+	# Rádio: canto inferior esquerdo, 720 de largura, cresce para cima
 	_tx_panel = PanelContainer.new()
-	_tx_panel.add_theme_stylebox_override("panel", _panel_style())
+	_tx_panel.name = "Radio"
+	_tx_panel.add_theme_stylebox_override("panel", UiSkin.frame(fkey, "n1"))
 	_tx_panel.anchor_top = 1.0
 	_tx_panel.anchor_bottom = 1.0
 	_tx_panel.offset_left = 20
-	_tx_panel.offset_top = -190
-	_tx_panel.offset_bottom = -60
-	_tx_panel.custom_minimum_size = Vector2(720, 0)
+	_tx_panel.offset_right = 740
+	_tx_panel.offset_top = -12
+	_tx_panel.offset_bottom = -12
+	_tx_panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	_tx_panel.visible = false
-	add_child(_tx_panel)
+	_root.add_child(_tx_panel)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	_tx_panel.add_child(row)
+	var portrait := PanelContainer.new()
+	portrait.add_theme_stylebox_override("panel", UiSkin.frame(fkey, "n2"))
+	portrait.custom_minimum_size = Vector2(64, 64)
+	portrait.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	portrait.add_child(UiSkin.Glyph.new("radio", title_col, 40))
+	row.add_child(portrait)
 	var v := VBoxContainer.new()
-	_tx_panel.add_child(v)
-	_tx_speaker = Label.new()
-	_tx_speaker.add_theme_font_size_override("font_size", 18)
-	_tx_speaker.add_theme_color_override("font_color", GameTheme.ACCENT)
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	v.add_theme_constant_override("separation", 4)
+	row.add_child(v)
+	_tx_speaker = UiSkin.label("", 15, title_col, true)
 	v.add_child(_tx_speaker)
-	_tx_text = Label.new()
+	_tx_text = UiSkin.label("", 16, UiSkin.TEXT_HI)
 	_tx_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_tx_text.custom_minimum_size = Vector2(696, 0)
-	_tx_text.add_theme_font_size_override("font_size", 17)
-	_tx_text.add_theme_color_override("font_color", GameTheme.TEXT)
+	_tx_text.custom_minimum_size = Vector2(600, 0)
 	v.add_child(_tx_text)
+	# Barrinha do tempo restante da transmissão (o rádio avança sozinho)
+	var bar_back := ColorRect.new()
+	bar_back.color = Color(0, 0, 0, 0.6)
+	bar_back.custom_minimum_size = Vector2(0, 4)
+	v.add_child(bar_back)
+	_tx_bar = ColorRect.new()
+	_tx_bar.color = UiSkin.skin(fkey)["color"]
+	_tx_bar.size = Vector2(0, 4)
+	bar_back.add_child(_tx_bar)
 
 
+## Objetivos: ◻ pendente, ◼ concluído (riscado); o de tempo traz o relógio "(MM:SS)".
+## Até MAX_OBJ_LINES linhas; o excedente vira "+N".
 func _refresh_objectives() -> void:
-	var t := "[b][color=#%s]%s — %s[/color][/b]\n" % [GameTheme.ACCENT.to_html(false), data["title"].to_upper(), data["map_name"]]
-	for o in data["objectives"]:
+	var lines: Array = []
+	var objs: Array = data["objectives"]
+	for i in objs.size():
+		var o: Dictionary = objs[i]
+		if lines.size() >= MAX_OBJ_LINES - 1 and objs.size() > MAX_OBJ_LINES:
+			lines.append("[color=#%s]+%d objetivos[/color]" % [UiSkin.TEXT_MID.to_html(false), objs.size() - i])
+			break
+		var txt := String(o["text"])
+		if txt.length() > 90:
+			txt = txt.left(88) + "…"
 		if done.has(o["id"]):
-			t += "[color=#7fd36a]■ %s[/color]\n" % o["text"]
+			lines.append("[color=#%s]◼ [s]%s[/s][/color]" % [UiSkin.GOOD.to_html(false), txt])
 		else:
 			var left := ""
 			if o["type"] == "survive":
-				left = "  [b]%s[/b]" % _clock(float(o["t"]) - time)
-			t += "[color=#%s]□ %s%s[/color]\n" % [GameTheme.TEXT.to_html(false), o["text"], left]
-	_obj_label.text = t.strip_edges()
+				left = "[b](%s)[/b] " % _clock(float(o["t"]) - time)
+			lines.append("◻ %s%s" % [left, txt])
+	_obj_label.text = "\n".join(lines)
 
 
 ## mm:ss de um tempo em segundos (nunca negativo).
@@ -331,8 +384,9 @@ static func _clock(seconds: float) -> String:
 	return "%02d:%02d" % [s / 60, s % 60]
 
 
-## Primeiro objetivo de tempo ainda não cumprido: mostra o cronômetro e atualiza o tempo
-## restante no painel de objetivos uma vez por segundo.
+## Primeiro objetivo de tempo ainda não cumprido: mostra o cronômetro (ícone + MM:SS) e
+## atualiza o tempo restante no painel de objetivos uma vez por segundo. Menos de 60 s:
+## âmbar + "!"; menos de 15 s: pulsa a 1 Hz.
 func _update_timer() -> void:
 	var cur: Dictionary = {}
 	for o in data["objectives"]:
@@ -343,14 +397,17 @@ func _update_timer() -> void:
 	if cur.is_empty():
 		return
 	var left := float(cur["t"]) - time
+	_timer_panel.modulate.a = (0.8 + 0.2 * cos(time * TAU)) if left <= TIMER_PULSE else 1.0
 	var sec := maxi(0, ceili(left))
 	if sec == _timer_sec:
 		return
 	_timer_sec = sec
 	_timer_label.text = _clock(left)
-	_timer_label.add_theme_color_override("font_color",
-			Color(1.0, 0.3, 0.2) if left <= TIMER_WARN else GameTheme.TEXT)
-	_timer_caption.text = String(cur["text"])
+	var warn := left <= TIMER_WARN
+	_timer_label.add_theme_color_override("font_color", UiSkin.WARN if warn else UiSkin.TEXT_HI)
+	_timer_icon.color = UiSkin.WARN if warn else UiSkin.TEXT_HI
+	_timer_icon.queue_redraw()
+	_timer_warn.visible = warn
 	_refresh_objectives()
 
 
@@ -366,16 +423,18 @@ func _next_transmission() -> void:
 		_tx_panel.visible = false
 		return
 	var m: Array = _tx_queue.pop_front()
-	_tx_speaker.text = "◆ " + String(m[0]).to_upper()
+	_tx_speaker.text = String(m[0]).to_upper()
 	_tx_text.text = m[1]
 	_tx_panel.visible = true
 	_tx_t = 4.0 + m[1].length() * 0.045
+	_tx_total = _tx_t
 
 
 func _update_transmission(delta: float) -> void:
 	if not _tx_panel.visible or get_tree().paused:
 		return
 	_tx_t -= delta
+	_tx_bar.size = Vector2(_tx_bar.get_parent().size.x * clampf(_tx_t / maxf(_tx_total, 0.01), 0.0, 1.0), 4)
 	if _tx_t <= 0.0:
 		_next_transmission()
 
@@ -395,7 +454,7 @@ func _show_briefing() -> void:
 		["MENU", func():
 			get_tree().paused = false
 			get_tree().change_scene_to_file("res://scenes/menu.tscn")],
-	], GameTheme.ACCENT)
+	], UiSkin.skin(UiSkin.player_key())["title"])
 
 
 func _show_modal(title: String, text: String, buttons: Array, color: Color) -> void:
@@ -403,41 +462,40 @@ func _show_modal(title: String, text: String, buttons: Array, color: Color) -> v
 	_modal = ColorRect.new()
 	_modal.color = Color(0, 0, 0, 0.55)
 	_modal.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	add_child(_modal)
+	_root.add_child(_modal)
 	var center := CenterContainer.new()
 	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	center.offset_right = -HUD.SIDEBAR_W   # centrado no campo
 	_modal.add_child(center)
 	var p := PanelContainer.new()
-	var sb := _panel_style(0.97)
-	sb.border_color = color.darkened(0.3)
+	var sb: StyleBoxTexture = UiSkin.frame(UiSkin.player_key(), "n1").duplicate()
 	sb.set_content_margin_all(28)
 	p.add_theme_stylebox_override("panel", sb)
 	center.add_child(p)
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 18)
 	p.add_child(v)
-	var t := Label.new()
-	t.text = title
+	var t := UiSkin.label(title, 36, color, true)
 	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	t.add_theme_font_size_override("font_size", 36)
-	t.add_theme_color_override("font_color", color)
 	v.add_child(t)
-	var body := Label.new()
-	body.text = text
+	var body := UiSkin.label(text, 19, UiSkin.TEXT_HI)
 	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	body.custom_minimum_size = Vector2(760, 0)
-	body.add_theme_font_size_override("font_size", 19)
-	body.add_theme_color_override("font_color", GameTheme.TEXT)
 	v.add_child(body)
 	var row := HBoxContainer.new()
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	row.add_theme_constant_override("separation", 16)
 	v.add_child(row)
+	var first: Button = null
 	for b in buttons:
 		var btn := MainMenu.make_button(b[0])
 		btn.custom_minimum_size = Vector2(250, 52)
 		btn.pressed.connect(b[1])
 		row.add_child(btn)
+		if first == null:
+			first = btn
+	if first != null and first.focus_mode != Control.FOCUS_NONE:
+		first.grab_focus.call_deferred()
 
 
 func _close_modal() -> void:

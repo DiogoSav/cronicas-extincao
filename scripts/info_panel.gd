@@ -1,6 +1,6 @@
 class_name InfoPanel
 extends PanelContainer
-## Painel no canto inferior esquerdo com os detalhes da seleção: uma unidade ou prédio
+## Painel no canto inferior direito do campo (colado à barra lateral) com os detalhes da seleção: uma unidade ou prédio
 ## (ícone, vida, blindagem, arma, estado, produção) ou um resumo de várias unidades.
 
 const ARMOR_NAMES := {"light": "leve", "medium": "média", "heavy": "pesada", "building": "prédio"}
@@ -24,7 +24,7 @@ var _multi: VBoxContainer
 var _multi_title: Label
 var _grid: GridContainer
 ## Barra de comandos: ordens para unidades, ou reciclar para prédios
-var _cmd: HBoxContainer
+var _cmd: HFlowContainer
 var _cmd_buttons := {}
 const UNIT_COMMANDS := [
 	["move", "Mover", "M", "Anda até o ponto ignorando inimigos (ou botão direito)"],
@@ -38,12 +38,9 @@ const UNIT_COMMANDS := [
 
 
 func _ready() -> void:
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = HUD.PANEL
-	sb.border_color = HUD.BORDER
-	sb.set_border_width_all(2)
-	sb.set_content_margin_all(10)
-	add_theme_stylebox_override("panel", sb)
+	var fkey := UiSkin.player_key()
+	var title_col: Color = UiSkin.skin(fkey)["title"]
+	add_theme_stylebox_override("panel", UiSkin.frame(fkey, "n1"))
 	custom_minimum_size = Vector2(600, 150)
 	mouse_filter = Control.MOUSE_FILTER_STOP
 
@@ -63,12 +60,13 @@ func _ready() -> void:
 	col.add_theme_constant_override("separation", 3)
 	_single.add_child(col)
 	_name = Label.new()
-	_name.add_theme_font_size_override("font_size", 21)
-	_name.add_theme_color_override("font_color", HUD.ACCENT)
+	_name.add_theme_font_override("font", UiSkin.font(true))
+	_name.add_theme_font_size_override("font_size", 22)
+	_name.add_theme_color_override("font_color", title_col)
 	col.add_child(_name)
 	_sub = Label.new()
-	_sub.add_theme_font_size_override("font_size", 13)
-	_sub.add_theme_color_override("font_color", Color(0.55, 0.65, 0.75))
+	_sub.add_theme_font_size_override("font_size", 14)
+	_sub.add_theme_color_override("font_color", UiSkin.TEXT_MID)
 	col.add_child(_sub)
 	var hp_row := HBoxContainer.new()
 	hp_row.add_theme_constant_override("separation", 8)
@@ -86,27 +84,30 @@ func _ready() -> void:
 	# Conserto: pedido prédio a prédio (este botão ou a tecla K)
 	_repair_btn = Button.new()
 	_repair_btn.focus_mode = Control.FOCUS_NONE
-	_repair_btn.add_theme_font_size_override("font_size", 13)
+	_repair_btn.add_theme_font_size_override("font_size", 14)
 	_repair_btn.tooltip_text = "Custo por ponto de vida = metade do custo do prédio ÷ vida máxima (tecla K)"
 	_repair_btn.pressed.connect(_on_repair_pressed)
 	hp_row.add_child(_repair_btn)
 	_stats = Label.new()
 	_stats.add_theme_font_size_override("font_size", 14)
+	_stats.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_stats.custom_minimum_size = Vector2(380, 0)
 	col.add_child(_stats)
 
 	_multi = VBoxContainer.new()
 	body.add_child(_multi)
 	_multi_title = Label.new()
 	_multi_title.add_theme_font_size_override("font_size", 19)
-	_multi_title.add_theme_color_override("font_color", HUD.ACCENT)
+	_multi_title.add_theme_color_override("font_color", title_col)
 	_multi.add_child(_multi_title)
 	_grid = GridContainer.new()
 	_grid.columns = 5
 	_grid.add_theme_constant_override("h_separation", 10)
 	_multi.add_child(_grid)
 
-	_cmd = HBoxContainer.new()
-	_cmd.add_theme_constant_override("separation", 6)
+	_cmd = HFlowContainer.new()
+	_cmd.add_theme_constant_override("h_separation", 6)
+	_cmd.add_theme_constant_override("v_separation", 6)
 	body.add_child(_cmd)
 	for c in UNIT_COMMANDS:
 		_cmd_buttons[c[0]] = _cmd_button("%s  (%s)" % [c[1], c[2]], c[3], _on_unit_command.bind(c[0]))
@@ -120,7 +121,7 @@ func _cmd_button(text: String, tip: String, cb: Callable) -> Button:
 	b.text = text
 	b.tooltip_text = tip
 	b.focus_mode = Control.FOCUS_NONE
-	b.add_theme_font_size_override("font_size", 13)
+	b.add_theme_font_size_override("font_size", 14)
 	b.pressed.connect(cb)
 	_cmd.add_child(b)
 	return b
@@ -156,7 +157,12 @@ func refresh() -> void:
 		_cmd_buttons["unload"].text = "Desembarcar %d  (U)" % n
 	for st in ["defend", "aggressive"]:
 		var all := not units.is_empty() and units.all(func(u): return u.stance == st)
-		_cmd_buttons[st].modulate = Color(0.5, 1.0, 0.6) if all else Color.WHITE
+		var sb: Button = _cmd_buttons[st]
+		if not sb.has_meta("base_text"):
+			sb.set_meta("base_text", sb.text)
+		# Postura ativa: marca "●" além da cor (não depende só do verde)
+		sb.text = ("●  " if all else "") + String(sb.get_meta("base_text"))
+		sb.modulate = Color(0.5, 1.0, 0.6) if all else Color.WHITE
 	var rb: Button = _cmd_buttons["recycle"]
 	rb.visible = units.is_empty() and not bldg.is_empty()
 	if rb.visible:
@@ -195,7 +201,12 @@ func _build_groups() -> void:
 			order.append(e.model_name)
 		counts[e.model_name] += 1
 	_multi_title.text = "%d unidades selecionadas" % selection.size()
-	for m in order:
+	# Até 3 linhas de 5: o excedente vira uma célula "+N"
+	var shown: Array = order if order.size() <= 15 else order.slice(0, 14)
+	var extra := 0
+	for m in order.slice(shown.size()):
+		extra += counts[m]
+	for m in shown:
 		var cell := VBoxContainer.new()
 		cell.add_theme_constant_override("separation", 0)
 		var pic := TextureRect.new()
@@ -208,9 +219,20 @@ func _build_groups() -> void:
 		var data := Game.item_data(m) if Game.UNITS.has(m) else {}
 		l.text = "%s ×%d" % [data.get("short", m), counts[m]]
 		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		l.add_theme_font_size_override("font_size", 13)
+		l.clip_text = true
+		l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		l.custom_minimum_size = Vector2(96, 0)
+		l.add_theme_font_size_override("font_size", 14)
 		cell.add_child(l)
 		_grid.add_child(cell)
+	if extra > 0:
+		var more := Label.new()
+		more.text = "+%d" % extra
+		more.custom_minimum_size = Vector2(96, 90)
+		more.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		more.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		more.add_theme_font_size_override("font_size", 24)
+		_grid.add_child(more)
 
 
 func _process(_delta: float) -> void:

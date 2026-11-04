@@ -19,6 +19,23 @@ const TEXT := Color(0.88, 0.84, 0.8)
 const BORDER := Color(0.42, 0.12, 0.08)
 const PANEL := Color(0.055, 0.045, 0.045, 0.94)
 
+## Skin da interface por facção (production/ui/hud-e-menu/ux-spec.md, seção 2). A cor
+## primária vem de data/game_data.gd ("color"); aqui ficam a cor escura das bordas, o fundo
+## dos painéis, a cor dos títulos (texto colorido legível sobre o painel), o chanfro da
+## moldura e o tipo de borda. A chave "" é a skin neutra do menu.
+const FACTION_SKINS := {
+	"hum": {"dark": Color("#5E1510"), "bg": Color("#14100F"), "title": Color("#FF5A47"),
+			"cut": 8, "double": false},
+	"rob": {"dark": Color("#7A3C08"), "bg": Color("#0F1114"), "title": Color("#FF8C2A"),
+			"cut": 4, "double": false},
+	"ins": {"dark": Color("#2E4A0A"), "bg": Color("#0D120B"), "title": Color("#9EFF1F"),
+			"cut": 8, "double": true, "accent2": Color("#7B4DB8")},
+	"": {"dark": Color(0.42, 0.12, 0.08), "bg": Color("#14100F"), "title": Color(1.0, 0.42, 0.22),
+			"cut": 6, "double": false},
+}
+## Logos das facções (assets/ui/logo_<chave>.png; chave da facção em game_data)
+const FACTION_LOGO := "res://assets/ui/logo_%s.png"
+
 ## Terreno (shader procedural): planeta devastado de rocha, cinza e terra queimada;
 ## o minério é cristal azul, reconhecível em qualquer mapa
 const GROUND_DARK := Color(0.075, 0.07, 0.065)

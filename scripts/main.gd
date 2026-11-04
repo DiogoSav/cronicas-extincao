@@ -256,8 +256,13 @@ func _unhandled_input(event: InputEvent) -> void:
 			Net.leave()
 			get_tree().change_scene_to_file("res://scenes/menu.tscn")
 		elif event.keycode == KEY_ESCAPE:
-			# Esc cancela o que estiver em andamento; sem nada para cancelar, pausa
-			if order_mode != "":
+			# Esc fecha o painel de atalhos (F1) primeiro; depois cancela o que estiver em
+			# andamento; sem nada para cancelar, pausa
+			if hud.help_open():
+				hud.close_help()
+				get_viewport().set_input_as_handled()
+				return
+			elif order_mode != "":
 				set_order_mode("")
 			elif placing != "":
 				placing = ""
@@ -265,6 +270,8 @@ func _unhandled_input(event: InputEvent) -> void:
 				_set_selection([])
 			else:
 				pause_menu.open()
+		elif event.keycode == KEY_F1:
+			hud.toggle_help()   # painel de atalhos (não pausa)
 		elif event.keycode == KEY_P:
 			pause_menu.open()
 		elif event.keycode in [KEY_EQUAL, KEY_PLUS, KEY_KP_ADD] and not Game.game_over:
