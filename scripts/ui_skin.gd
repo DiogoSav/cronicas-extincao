@@ -18,7 +18,10 @@ const INNER_BG := Color("#0A0808")
 
 const FONT_MEDIUM := "res://assets/fonts/Rajdhani-Medium.ttf"
 const FONT_BOLD := "res://assets/fonts/Rajdhani-Bold.ttf"
-## Fontes do sistema para os símbolos que a Rajdhani não tem (◂ ▸ ◻ ◼ ✓ ▶ ●)
+## Símbolos que a Rajdhani não tem (◂ ▸ ◻ ◼ ✓ ▶ ●): fonte embutida, que funciona também na
+## versão Web (lá não há fontes do sistema)
+const FONT_SYMBOLS := "res://assets/fonts/NotoSansSymbols2-Regular.ttf"
+## Fontes do sistema, reserva para o que nem a fonte embutida tiver
 const SYMBOL_FONTS := ["Segoe UI Symbol", "Segoe UI", "DejaVu Sans", "Noto Sans Symbols 2",
 		"Noto Sans Symbols", "Noto Sans", "Arial Unicode MS"]
 
@@ -42,7 +45,11 @@ static func install() -> void:
 		var f: Font = load(FONT_BOLD if bold else FONT_MEDIUM)
 		if f == null:
 			continue
-		var fb: Array[Font] = [sym]
+		var fb: Array[Font] = []
+		var embedded: Font = load(FONT_SYMBOLS)
+		if embedded != null:
+			fb.append(embedded)
+		fb.append(sym)
 		if base != null:
 			fb.append(base)
 		f.fallbacks = fb

@@ -115,7 +115,7 @@ func _ready() -> void:
 	if mission != null:
 		add_child(mission)
 	else:
-		hud.show_message("%s: construa %s → %s e destrua a base inimiga!" % [f["army"], f["buildings"]["power"], f["buildings"]["refinery"]])
+		hud.show_message("%s: construa %s e %s e destrua a base inimiga!" % [f["army"], f["buildings"]["power"], f["buildings"]["refinery"]])
 	if Net.active:
 		# Multiplayer: congela até os dois jogadores terminarem de carregar
 		hud.set_waiting("Aguardando %s terminar de carregar…" % Net.names[1 - Net.me()])
