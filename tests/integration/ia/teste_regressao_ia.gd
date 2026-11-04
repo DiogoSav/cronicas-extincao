@@ -54,6 +54,8 @@ func _open(id: String, difficulty := "medio") -> Node:
 	await process_frame
 	var main: Node = current_scene
 	paused = false
+	# Game.reset() volta a velocidade a 100% em cada partida nova: reaplica a aceleração do teste
+	Engine.time_scale = SPEED
 	if main.mission != null and main.mission._modal != null:
 		main.mission._close_modal()
 	return main
